@@ -31,4 +31,19 @@
   - 更新：`Web/index.html` 为测速区补充独立日志卡，并调整测速指标文案。
   - 更新：`Web/style.css` 为测速大数字启用等宽数值显示，提升跳动时可读性。
   - 验证：浏览器实测确认“国内测速”过程中数值实时变化，且不会联动显示 NAT 结果区。
-- [ ] **目标:** 初始化 Git 仓库并推送项目到 GitHub 仓库 `echo-nat-speed` (创建于: 2026-04-21 19:31:51)
+- [x] ~~**目标:** 初始化 Git 仓库并推送项目到 GitHub 仓库 `echo-nat-speed`~~ (创建于: 2026-04-21 19:31:51 | **完成于: 2026-04-21 19:35:01**)
+  - 新增：`.gitignore`，排除 `.serena/`、`__pycache__/` 和本地系统垃圾文件。
+  - 新增：`README.md`，补项目用途、结构和本地启动方式。
+  - 初始化：本地 Git 仓库，提交 `fb0b341`。
+  - 推送：已创建并推送到 GitHub 仓库 `zhizhishu/echo-nat-speed`，本地 `main` 已对齐 `origin/main`。
+- [x] ~~**目标:** 提供 Docker 与 Docker Compose 可运行版本，内置 `iNetSpeed-CLI` 并完成本地容器验证~~ (创建于: 2026-04-21 19:36:51 | **完成于: 2026-04-21 19:44:40**)
+  - 新增：`Dockerfile`，以仓库内 `vendor/iNetSpeed-CLI` 离线构建 `speedtest` 二进制，避免构建阶段依赖 GitHub 拉取源码。
+  - 新增：`docker-compose.yml`，提供一键构建与运行入口，并暴露测速相关环境变量覆盖项。
+  - 新增：`.dockerignore`，减少构建上下文噪声。
+  - 新增：`vendor/iNetSpeed-CLI`，锁定上游 `nxtrace/iNetSpeed-CLI` 提交 `dd6f601b4968ee18c7d4a950490bfcb4d7c608d6`，并补齐 Go vendor 依赖。
+  - 更新：`README.md`，补充 Docker / Docker Compose 运行说明与 vendored 依赖说明。
+  - 验证：`docker build -t echo-nat-speed:test .`
+  - 验证：`HOST_PORT=8090 docker compose up -d --build`
+  - 验证：`curl -s http://127.0.0.1:8090/api/health`
+  - 验证：`curl -s -X POST http://127.0.0.1:8090/api/domestic-speed ...`
+  - 清理：`docker compose down`

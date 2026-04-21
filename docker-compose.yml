@@ -1,0 +1,16 @@
+services:
+  echo-nat-speed:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: zhizhishu/echo-nat-speed:local
+    ports:
+      - "${HOST_PORT:-8080}:8080"
+    environment:
+      ECHO_NAT_HOST: 0.0.0.0
+      ECHO_NAT_PORT: 8080
+      INETSPEED_TIMEOUT: ${INETSPEED_TIMEOUT:-4}
+      INETSPEED_MAX: ${INETSPEED_MAX:-4M}
+      INETSPEED_LATENCY_COUNT: ${INETSPEED_LATENCY_COUNT:-4}
+      INETSPEED_THREADS: ${INETSPEED_THREADS:-2}
+    restart: unless-stopped

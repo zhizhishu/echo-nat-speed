@@ -1,0 +1,6 @@
+.DS_Store
+.git
+.serena
+__pycache__/
+*.pyc
+
