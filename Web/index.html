@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Echo NAT - 在线网络检测工具</title>
+<meta name="description" content="Echo NAT 在线网络NAT类型检测工具，支持IPv6连通性测试和MTU路径发现">
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">E</div>
+    <span class="logo-text">Echo <span class="logo-accent">NAT</span></span>
+  </div>
+  <nav>
+    <a href="#detect" class="nav-active">NAT 检测</a>
+    <a href="#about">名词解释</a>
+    <a href="https://github.com" target="_blank" class="nav-github">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+    </a>
+  </nav>
+</header>
+
+<main>
+  <!-- Hero -->
+  <section class="hero" id="detect">
+    <h1>在线检测 <span class="gradient-text">NAT 类型</span></h1>
+    <p class="subtitle">基于 WebRTC STUN 与本地桥接测速，识别当前网络 NAT 状态，并补充国内可用节点的延迟、下载和上传表现。</p>
+    <div class="hero-actions">
+      <button id="startBtn" class="btn-primary" onclick="startDetection()">
+        开始 NAT 检测
+      </button>
+      <button id="cnSpeedBtn" class="btn-secondary" onclick="startDomesticSpeedTest()">
+        国内测速
+      </button>
+    </div>
+  </section>
+
+  <!-- Result Section -->
+  <section class="result-section" id="resultSection" style="display:none;">
+    <!-- NAT Result -->
+    <div class="card card-main" id="natCard">
+      <div class="card-header">
+        <span class="card-tag">NAT 状态检测</span>
+        <span class="card-status" id="natStatus">等待测试</span>
+      </div>
+      <div class="nat-result" id="natResult">
+        <div class="spinner" id="spinner" style="display:none;"></div>
+        <div class="nat-type" id="natType" style="display:none;"></div>
+        <div class="nat-level" id="natLevel">点击“开始 NAT 检测”执行 WebRTC 探测</div>
+      </div>
+      <div class="nat-details" id="natDetails" style="display:none;">
+        <div class="detail-row"><span class="detail-label">外部 IP</span><span class="detail-value" id="extIP">-</span></div>
+        <div class="detail-row"><span class="detail-label">外部端口</span><span class="detail-value" id="extPort">-</span></div>
+        <div class="detail-row"><span class="detail-label">映射方式</span><span class="detail-value" id="mapping">-</span></div>
+      </div>
+    </div>
+
+    <!-- Info Cards Row -->
+    <div class="cards-row">
+      <div class="card card-small" id="ipv6Card">
+        <div class="card-header"><span class="card-tag">IPv6 网络</span></div>
+        <div class="card-body">
+          <div class="info-value" id="ipv6Status">
+            <div class="dot dot-gray"></div> 等待测试
+          </div>
+          <div class="info-sub" id="ipv6Addr"></div>
+        </div>
+      </div>
+      <div class="card card-small" id="mtuCard">
+        <div class="card-header"><span class="card-tag">MTU 探测</span></div>
+        <div class="card-body">
+          <div class="info-value" id="mtuStatus">
+            <div class="dot dot-gray"></div> 等待测试
+          </div>
+          <div class="info-sub" id="mtuInfo"></div>
+        </div>
+      </div>
+      <div class="card card-small" id="latencyCard">
+        <div class="card-header"><span class="card-tag">平均延迟</span></div>
+        <div class="card-body">
+          <div class="info-value" id="latencyValue">-</div>
+          <div class="info-sub" id="latencyServer"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Server Log -->
+    <div class="card card-log">
+      <div class="card-header">
+        <span class="card-tag">检测日志</span>
+        <span class="log-count" id="logCount">0 次测试</span>
+      </div>
+      <div class="log-body" id="logBody"></div>
+    </div>
+  </section>
+
+  <!-- China Speed Test -->
+  <section class="result-section speed-result-section" id="speedResultSection" style="display:none;">
+    <div class="card card-main speed-card" id="speedCard">
+      <div class="card-header">
+        <span class="card-tag">国内测速</span>
+        <span class="card-status" id="speedStatus">等待测试</span>
+      </div>
+
+      <div class="speed-overview">
+        <div class="spinner" id="speedSpinner" style="display:none;"></div>
+        <div class="speed-main-value" id="speedDownload">-- Mbps</div>
+        <div class="speed-main-label" id="speedSummary">通过本地桥接调用 iNetSpeed-CLI，优先测试国内可用 Apple CDN 节点。</div>
+      </div>
+
+      <div class="speed-metrics" id="speedMetrics">
+        <div class="detail-row">
+          <span class="detail-label">下载参考</span>
+          <span class="detail-value" id="speedDownloadDetail">-</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">上传参考</span>
+          <span class="detail-value" id="speedUpload">-</span>
+          <span class="metric-detail" id="speedUploadDetail"></span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">空载延迟</span>
+          <span class="detail-value" id="speedIdleLatency">-</span>
+          <span class="metric-detail" id="speedIdleLatencyDetail"></span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">测速节点</span>
+          <span class="detail-value" id="speedEndpoint">-</span>
+          <span class="metric-detail" id="speedEndpointDetail"></span>
+        </div>
+      </div>
+
+      <div class="speed-hint-box" id="speedHintBox">
+        <div class="speed-hint-title">提示信息</div>
+        <div class="speed-hint-text" id="speedHintText">等待开始国内测速。</div>
+      </div>
+    </div>
+
+    <div class="card card-log">
+      <div class="card-header">
+        <span class="card-tag">测速日志</span>
+        <span class="log-count" id="speedLogCount">0 条</span>
+      </div>
+      <div class="log-body" id="speedLogBody"></div>
+    </div>
+  </section>
+
+  <!-- About -->
+  <section class="about" id="about">
+    <h2>NAT 类型说明</h2>
+    <div class="nat-grid">
+      <div class="nat-card nat1">
+        <div class="nat-badge">NAT1</div>
+        <h3>完全圆锥型 (Full Cone)</h3>
+        <p>连接性最佳，内网主机可以被外部任意主机主动连接。P2P 下载、游戏主机联机完全畅通无阻。</p>
+      </div>
+      <div class="nat-card nat2">
+        <div class="nat-badge">NAT2</div>
+        <h3>受限圆锥型 (Restricted Cone)</h3>
+        <p>连接性良好，内网主机必须先向特定的外部 IP 发送过数据，该外部主机才能向内网主机发送数据。</p>
+      </div>
+      <div class="nat-card nat3">
+        <div class="nat-badge">NAT3</div>
+        <h3>端口受限型 (Port Restricted)</h3>
+        <p>连接性一般，限制精确到端口级别。外部主机必须匹配此前内网主机通信过的 IP 和端口才能回传数据。</p>
+      </div>
+      <div class="nat-card nat4">
+        <div class="nat-badge">NAT4</div>
+        <h3>对称型 (Symmetric NAT)</h3>
+        <p>连接性最差，每次与不同的外部目标通信时，路由器都会分配一个新的端口。P2P 打洞极难成功，通常需要 TURN 中继。</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p>Echo NAT &copy; 2026 &mdash; Built with WebRTC STUN Protocol (RFC 5389)</p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
