@@ -124,3 +124,6 @@ go.work.sum
 
 dist/
 speedtest
+!cmd/
+!cmd/speedtest/
+!cmd/speedtest/**
