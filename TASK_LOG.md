@@ -47,3 +47,7 @@
   - 验证：`curl -s http://127.0.0.1:8090/api/health`
   - 验证：`curl -s -X POST http://127.0.0.1:8090/api/domestic-speed ...`
   - 清理：`docker compose down`
+- [x] ~~**目标:** 为 README 增加中英文切换链接，并补充中文版本说明文档~~ (创建于: 2026-04-21 19:46:39 | **完成于: 2026-04-21 19:47:28**)
+  - 更新：`README.md` 顶部增加 `README.zh-CN.md` 入口，保留英文主页作为默认落地页。
+  - 新增：`README.zh-CN.md`，提供与英文版对应的中文使用说明，并在顶部反向链接英文版。
+- [ ] **目标:** 通过 GitHub Actions 发布 GHCR 公有镜像，并给出 ClawCloud 可直接使用的镜像地址 (创建于: 2026-04-22 14:07:24)

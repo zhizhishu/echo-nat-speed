@@ -15,6 +15,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     ECHO_NAT_HOST=0.0.0.0 \
     ECHO_NAT_PORT=8080
 
+LABEL org.opencontainers.image.source="https://github.com/zhizhishu/echo-nat-speed"
+LABEL org.opencontainers.image.description="Echo NAT Speed bundles NAT detection and domestic speed testing in a single container image."
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && update-ca-certificates \

@@ -1,5 +1,11 @@
 # Echo NAT Speed
 
+[简体中文](README.zh-CN.md)
+
+Public container image:
+
+- `ghcr.io/zhizhishu/echo-nat-speed:latest`
+
 `EchoNAT_Project` is a lightweight network diagnostics toolkit with:
 
 - WebRTC-based NAT detection in the browser
@@ -46,6 +52,19 @@ Useful overrides:
 - `INETSPEED_TIMEOUT=6 docker compose up --build`
 - `INETSPEED_MAX=8M docker compose up --build`
 - `INETSPEED_THREADS=4 docker compose up --build`
+
+## Deploy on ClawCloud
+
+For ClawCloud Run, you can deploy directly from the public image:
+
+- `ghcr.io/zhizhishu/echo-nat-speed:latest`
+
+Recommended app settings:
+
+- Port: `8080`
+- Public access: enabled
+- Replicas: `1`
+- CPU / Memory: `0.5 vCPU / 512 MB`
 
 ## Vendored dependency
 
