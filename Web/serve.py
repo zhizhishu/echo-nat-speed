@@ -10,6 +10,8 @@ import sys
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from time import perf_counter, time
+from urllib.parse import parse_qs, urlparse
 
 
 WEB_ROOT = Path(__file__).resolve().parent
@@ -17,6 +19,11 @@ PROJECT_ROOT = WEB_ROOT.parent
 DEFAULT_HOST = os.getenv("ECHO_NAT_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.getenv("ECHO_NAT_PORT", "8080"))
 INETSPEED_REPO_URL = "https://github.com/nxtrace/iNetSpeed-CLI"
+DEFAULT_BROWSER_DOWNLOAD_BYTES = 32 * 1024 * 1024
+MIN_BROWSER_DOWNLOAD_BYTES = 1 * 1024 * 1024
+MAX_BROWSER_DOWNLOAD_BYTES = 128 * 1024 * 1024
+MAX_BROWSER_UPLOAD_BYTES = 64 * 1024 * 1024
+STREAM_CHUNK = os.urandom(64 * 1024)
 
 
 def candidate_repo_paths() -> list[Path]:
@@ -150,6 +157,14 @@ def summarize_result(result: dict[str, object], command: list[str], source: dict
     }
 
 
+def clamp_int(raw_value: str | None, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(raw_value or default)
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(value, maximum))
+
+
 def run_domestic_speed(payload: dict[str, object]) -> dict[str, object]:
     base_cmd, cwd, source = resolve_cli_command()
     cmd = [*base_cmd, *build_speedtest_args(payload)]
@@ -212,6 +227,17 @@ class EchoHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def send_binary_headers(self, content_length: int) -> None:
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", str(content_length))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Encoding", "identity")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.end_headers()
+
     def do_OPTIONS(self) -> None:
         self.send_response(HTTPStatus.NO_CONTENT)
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -220,12 +246,15 @@ class EchoHandler(SimpleHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self) -> None:
-        if self.path == "/api/health":
+        parsed = urlparse(self.path)
+
+        if parsed.path == "/api/health":
             try:
                 command, cwd, source = resolve_cli_command()
                 self.send_json(
                     {
                         "ok": True,
+                        "browserSpeedReady": True,
                         "speedtestReady": True,
                         "bridge": "python",
                         "command": command,
@@ -237,6 +266,7 @@ class EchoHandler(SimpleHTTPRequestHandler):
                 self.send_json(
                     {
                         "ok": True,
+                        "browserSpeedReady": True,
                         "speedtestReady": False,
                         "bridge": "python",
                         "error": str(exc),
@@ -244,10 +274,79 @@ class EchoHandler(SimpleHTTPRequestHandler):
                 )
             return
 
+        if parsed.path == "/api/browser-speed/ping":
+            self.send_json(
+                {
+                    "ok": True,
+                    "browserSpeedReady": True,
+                    "serverTimeMs": int(time() * 1000),
+                }
+            )
+            return
+
+        if parsed.path == "/api/browser-speed/download":
+            requested_bytes = clamp_int(
+                parse_qs(parsed.query).get("bytes", [str(DEFAULT_BROWSER_DOWNLOAD_BYTES)])[0],
+                default=DEFAULT_BROWSER_DOWNLOAD_BYTES,
+                minimum=MIN_BROWSER_DOWNLOAD_BYTES,
+                maximum=MAX_BROWSER_DOWNLOAD_BYTES,
+            )
+            self.send_binary_headers(requested_bytes)
+            remaining = requested_bytes
+            try:
+                while remaining > 0:
+                    chunk_size = min(remaining, len(STREAM_CHUNK))
+                    self.wfile.write(STREAM_CHUNK[:chunk_size])
+                    remaining -= chunk_size
+            except (BrokenPipeError, ConnectionResetError):
+                return
+            return
+
         super().do_GET()
 
     def do_POST(self) -> None:
-        if self.path not in ("/api/domestic-speed", "/api/domestic-speedtest"):
+        parsed = urlparse(self.path)
+
+        if parsed.path == "/api/browser-speed/upload":
+            content_length = clamp_int(
+                self.headers.get("Content-Length"),
+                default=0,
+                minimum=0,
+                maximum=MAX_BROWSER_UPLOAD_BYTES,
+            )
+            if content_length <= 0:
+                self.send_json({"ok": False, "error": "上传体不能为空。"}, HTTPStatus.BAD_REQUEST)
+                return
+
+            raw_length = self.headers.get("Content-Length")
+            if raw_length is not None and int(raw_length) > MAX_BROWSER_UPLOAD_BYTES:
+                self.send_json(
+                    {
+                        "ok": False,
+                        "error": f"上传体过大，单次上传不能超过 {MAX_BROWSER_UPLOAD_BYTES // (1024 * 1024)} MiB。",
+                    },
+                    HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                )
+                return
+
+            received = 0
+            started = perf_counter()
+            while received < content_length:
+                chunk = self.rfile.read(min(64 * 1024, content_length - received))
+                if not chunk:
+                    break
+                received += len(chunk)
+
+            self.send_json(
+                {
+                    "ok": True,
+                    "receivedBytes": received,
+                    "durationMs": round((perf_counter() - started) * 1000, 2),
+                }
+            )
+            return
+
+        if parsed.path not in ("/api/domestic-speed", "/api/domestic-speedtest"):
             self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
             return
 
@@ -296,6 +395,7 @@ class EchoHandler(SimpleHTTPRequestHandler):
 def main() -> None:
     server = ThreadingHTTPServer((DEFAULT_HOST, DEFAULT_PORT), EchoHandler)
     print(f"Server running at http://{DEFAULT_HOST}:{DEFAULT_PORT}")
+    print("Browser speed APIs: GET /api/browser-speed/ping, GET /api/browser-speed/download, POST /api/browser-speed/upload")
     print("Domestic speed API: POST /api/domestic-speed")
     try:
         server.serve_forever()

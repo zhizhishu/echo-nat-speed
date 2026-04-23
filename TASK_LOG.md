@@ -57,3 +57,11 @@
   - 复验：GitHub Packages API 返回 `visibility=public`。
   - 复验：匿名执行 `docker manifest inspect ghcr.io/zhizhishu/echo-nat-speed:latest` 成功，返回 OCI image index，目标平台为 `linux/amd64`。
   - 结果：ClawCloud 可直接使用镜像 `ghcr.io/zhizhishu/echo-nat-speed:latest` 部署。
+- [x] ~~**目标:** 将“国内测速”改为用户浏览器真实测速，并将右上角 GitHub 图标指向项目仓库~~ (创建于: 2026-04-23 12:50:13 | **完成于: 2026-04-23 13:00:08**)
+  - 更新：`Web/index.html` 将按钮、卡片、日志与提示文案改为“浏览器测速”，并将右上角 GitHub 图标指向 `https://github.com/zhizhishu/echo-nat-speed`。
+  - 更新：`Web/app.js` 改为通过浏览器直接调用 `/api/browser-speed/ping`、`/api/browser-speed/download`、`/api/browser-speed/upload`，测量当前用户到部署节点的真实下载、上传与往返延迟。
+  - 更新：`README.md` 与 `README.zh-CN.md`，补充浏览器测速为默认能力，并将 `iNetSpeed-CLI` 降级为可选运维诊断能力。
+  - 验证：`node --check Web/app.js`
+  - 验证：`python3 -m py_compile Web/serve.py`
+  - 验证：本地启动 `ECHO_NAT_PORT=8091 python3 Web/serve.py`，实测 `GET /api/browser-speed/ping`、`GET /api/browser-speed/download?bytes=1048576`、`POST /api/browser-speed/upload` 全部成功。
+  - 验证：浏览器实跑页面，`浏览器测速` 完成后显示目标节点为 `127.0.0.1:8091`，日志中出现真实下载、上传与延迟结果。

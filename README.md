@@ -10,11 +10,12 @@ Public container image:
 
 - WebRTC-based NAT detection in the browser
 - IPv6 and MTU checks
-- A local bridge that runs `iNetSpeed-CLI` for domestic speed testing
+- Real browser-side download and upload tests from the user to the deployed node
+- An optional server-side `iNetSpeed-CLI` bridge kept for operator-side diagnostics
 
 ## Structure
 
-- `Web/`: browser UI plus local bridge server
+- `Web/`: browser UI, browser speed APIs, and optional CLI bridge server
 - `CLI/`: shell and PowerShell NAT detection scripts
 - `Tests/`: mock STUN and UDP helpers
 
@@ -22,14 +23,16 @@ Public container image:
 
 ```bash
 cd Web
-INETSPEED_CLI_REPO=/path/to/iNetSpeed-CLI python3 serve.py
+python3 serve.py
 ```
 
 Then open `http://127.0.0.1:8080`.
 
+If you still want to use the optional server-side `iNetSpeed-CLI` bridge API, set `INETSPEED_CLI_REPO` or install `speedtest` into `PATH`.
+
 ## Run with Docker
 
-The container image bundles a vendored copy of `iNetSpeed-CLI`, so the host machine does not need to install `speedtest` separately and the image build no longer depends on cloning GitHub during `docker build`.
+The container image exposes browser speed endpoints by default. It also bundles a vendored copy of `iNetSpeed-CLI` for optional server-side diagnostics, so the host machine does not need to install `speedtest` separately and the image build no longer depends on cloning GitHub during `docker build`.
 
 Build and run with Docker:
 

@@ -12,15 +12,19 @@ const STUN_SERVERS = [
   { name: 'Cloudflare', url: 'stun:stun.cloudflare.com:3478' },
 ];
 
-const DOMESTIC_SPEED_API = '/api/domestic-speed';
+const BROWSER_SPEED_BASE = '/api/browser-speed';
+const BROWSER_SPEED_PING_API = `${BROWSER_SPEED_BASE}/ping`;
+const BROWSER_SPEED_DOWNLOAD_API = `${BROWSER_SPEED_BASE}/download`;
+const BROWSER_SPEED_UPLOAD_API = `${BROWSER_SPEED_BASE}/upload`;
+const LATENCY_SAMPLE_COUNT = 5;
+const DOWNLOAD_SAMPLE_BYTES = 96 * 1024 * 1024;
+const UPLOAD_SAMPLE_BYTES = 32 * 1024 * 1024;
+const PROGRESS_THROTTLE_MS = 120;
 
 const logState = {
   nat: 0,
   speed: 0,
 };
-
-let speedPulseTimer = null;
-let speedPulseState = null;
 
 function getLogElements(scope = 'nat') {
   if (scope === 'speed') {
@@ -81,11 +85,11 @@ function setText(id, value) {
   document.getElementById(id).textContent = value;
 }
 
-function formatMbps(round) {
-  if (!round || typeof round.mbps !== 'number' || Number.isNaN(round.mbps)) {
+function formatMbps(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
     return '-';
   }
-  return `${round.mbps.toFixed(1)} Mbps`;
+  return `${value.toFixed(1)} Mbps`;
 }
 
 function formatLatencyMs(value) {
@@ -95,236 +99,407 @@ function formatLatencyMs(value) {
   return `${value.toFixed(1)} ms`;
 }
 
-function findRound(rounds, direction, threads) {
-  return rounds.find((round) => round.direction === direction && round.threads === threads) || null;
+function formatBytesMiB(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return '-';
+  }
+  return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
-function speedStateColor(result) {
-  if (!result) {
-    return 'var(--border)';
+function average(values) {
+  if (!Array.isArray(values) || values.length === 0) {
+    return null;
   }
-  return result.degraded ? 'var(--accent-yellow)' : 'var(--accent-green)';
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
-function randomBetween(min, max) {
-  return min + Math.random() * (max - min);
+function median(values) {
+  if (!Array.isArray(values) || values.length === 0) {
+    return null;
+  }
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 0) {
+    return (sorted[middle - 1] + sorted[middle]) / 2;
+  }
+  return sorted[middle];
 }
 
-function easeTowards(current, target, factor = 0.28) {
-  return current + ((target - current) * factor);
+function computeJitter(values) {
+  if (!Array.isArray(values) || values.length < 2) {
+    return null;
+  }
+  const deltas = [];
+  for (let i = 1; i < values.length; i += 1) {
+    deltas.push(Math.abs(values[i] - values[i - 1]));
+  }
+  return average(deltas);
 }
 
-function stopSpeedPulse() {
-  if (speedPulseTimer) {
-    clearInterval(speedPulseTimer);
-    speedPulseTimer = null;
+function bytesToMbps(bytes, elapsedMs) {
+  if (typeof bytes !== 'number' || typeof elapsedMs !== 'number' || elapsedMs <= 0) {
+    return null;
   }
-  speedPulseState = null;
+  return (bytes * 8) / (elapsedMs / 1000) / 1000 / 1000;
 }
 
-function renderSpeedPulseFrame() {
-  if (!speedPulseState) {
-    return;
-  }
-
-  const elapsedSeconds = (Date.now() - speedPulseState.startedAt) / 1000;
-  let phase = 'selecting';
-  if (elapsedSeconds >= 3 && elapsedSeconds < 10) {
-    phase = 'download';
-  } else if (elapsedSeconds >= 10 && elapsedSeconds < 15) {
-    phase = 'upload';
-  } else if (elapsedSeconds >= 15) {
-    phase = 'finalizing';
-  }
-
-  if (phase === 'selecting') {
-    speedPulseState.latency = easeTowards(speedPulseState.latency || 0, randomBetween(18, 90), 0.4);
-    setText('speedStatus', '节点探测中...');
-    setText('speedSummary', '正在选择国内可用测速节点并建立连接。');
-    setText('speedDownload', '-- Mbps');
-    setText('speedDownloadDetail', `已扫描 ${Math.min(6, Math.max(1, Math.ceil(elapsedSeconds * 1.8)))} 个候选`);
-    setText('speedUpload', '-');
-    setText('speedUploadDetail', '等待下载阶段完成');
-    setText('speedIdleLatency', formatLatencyMs(speedPulseState.latency));
-    setText('speedIdleLatencyDetail', '空载延迟采样中');
-    setText('speedEndpoint', '探测中');
-    setText('speedEndpointDetail', '正在锁定最佳国内节点');
-    setText('speedHintText', '测速按钮已独立运行，不会联动 NAT 检测区域。');
-    return;
-  }
-
-  if (phase === 'download') {
-    const targetDownload = 20 + ((elapsedSeconds - 3) * 8) + randomBetween(-8, 24);
-    speedPulseState.download = easeTowards(speedPulseState.download || 0, Math.max(8, targetDownload), 0.35);
-    speedPulseState.latency = easeTowards(speedPulseState.latency || 40, randomBetween(28, 85), 0.25);
-    setText('speedStatus', '下载测速中...');
-    setText('speedSummary', '正在持续拉取流量样本，当前速率会实时波动。');
-    setText('speedDownload', `${Math.max(speedPulseState.download, 0.1).toFixed(1)} Mbps`);
-    setText('speedDownloadDetail', '实时下载变化中');
-    setText('speedUpload', '-');
-    setText('speedUploadDetail', '等待上传阶段开始');
-    setText('speedIdleLatency', formatLatencyMs(speedPulseState.latency));
-    setText('speedIdleLatencyDetail', '下载阶段采样中');
-    setText('speedEndpoint', '已锁定');
-    setText('speedEndpointDetail', '国内候选节点已选定');
-    setText('speedHintText', '当前大号数字是实时下载速度，最终结果会在结束后收敛。');
-    return;
-  }
-
-  if (phase === 'upload') {
-    const targetDownload = Math.max(speedPulseState.download || 30, randomBetween(28, 85));
-    const targetUpload = 2 + ((elapsedSeconds - 10) * 2.5) + randomBetween(-1, 3.8);
-    speedPulseState.download = easeTowards(speedPulseState.download || targetDownload, targetDownload, 0.18);
-    speedPulseState.upload = easeTowards(speedPulseState.upload || 0, Math.max(0.5, targetUpload), 0.3);
-    speedPulseState.latency = easeTowards(speedPulseState.latency || 45, randomBetween(35, 100), 0.2);
-    setText('speedStatus', '上传测速中...');
-    setText('speedSummary', '下载阶段已完成，正在测试上传能力。');
-    setText('speedDownload', `${Math.max(speedPulseState.download, 0.1).toFixed(1)} Mbps`);
-    setText('speedDownloadDetail', '下载结果保持中');
-    setText('speedUpload', `${Math.max(speedPulseState.upload, 0.1).toFixed(1)} Mbps`);
-    setText('speedUploadDetail', '实时上传变化中');
-    setText('speedIdleLatency', formatLatencyMs(speedPulseState.latency));
-    setText('speedIdleLatencyDetail', '上传阶段采样中');
-    setText('speedEndpoint', '已锁定');
-    setText('speedEndpointDetail', '国内候选节点已选定');
-    setText('speedHintText', '上传速度通常会比下载更低，数值会继续波动。');
-    return;
-  }
-
-  speedPulseState.download = easeTowards(speedPulseState.download || 36, speedPulseState.download || 36, 0.1);
-  speedPulseState.upload = easeTowards(speedPulseState.upload || 5, speedPulseState.upload || 5, 0.1);
-  setText('speedStatus', '整理结果中...');
-  setText('speedSummary', '测速样本已收集完成，正在等待桥接返回最终结果。');
-  setText('speedDownload', `${Math.max(speedPulseState.download || 0.1, 0.1).toFixed(1)} Mbps`);
-  setText('speedDownloadDetail', '最终结果即将返回');
-  setText('speedUpload', `${Math.max(speedPulseState.upload || 0.1, 0.1).toFixed(1)} Mbps`);
-  setText('speedUploadDetail', '最终结果即将返回');
-  setText('speedHintText', '测速按钮与 NAT 按钮完全独立，当前不会触发 STUN 检测。');
+function speedEndpointLabel() {
+  return window.location.host || window.location.hostname || '当前部署节点';
 }
 
-function startSpeedPulse() {
-  stopSpeedPulse();
-  speedPulseState = {
-    startedAt: Date.now(),
-    download: 0,
-    upload: 0,
-    latency: 0,
-  };
-  renderSpeedPulseFrame();
-  speedPulseTimer = setInterval(renderSpeedPulseFrame, 280);
+function delay(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
 }
 
-function resetDomesticSpeedCard() {
-  stopSpeedPulse();
+function setSpeedHint(text, tone = 'info') {
+  const box = document.getElementById('speedHintBox');
+  box.classList.remove('is-success', 'is-warn', 'is-fail');
+  if (tone === 'success') {
+    box.classList.add('is-success');
+  } else if (tone === 'warn') {
+    box.classList.add('is-warn');
+  } else if (tone === 'fail') {
+    box.classList.add('is-fail');
+  }
+  setText('speedHintText', text);
+}
+
+function resetBrowserSpeedCard() {
   document.getElementById('speedSpinner').style.display = 'none';
   document.getElementById('speedCard').style.borderColor = 'rgba(0, 122, 255, 0.16)';
   setText('speedStatus', '等待测速');
   setText('speedDownload', '-- Mbps');
-  setText('speedSummary', '通过本地桥接调用 iNetSpeed-CLI，优先测试国内可用 Apple CDN 节点。');
+  setText('speedSummary', '通过当前浏览器向当前部署节点发起真实下载与上传流量，结果会占用你本地的实际网络带宽。');
   setText('speedDownloadDetail', '-');
   setText('speedUpload', '-');
   setText('speedUploadDetail', '');
   setText('speedIdleLatency', '-');
   setText('speedIdleLatencyDetail', '');
-  setText('speedEndpoint', '-');
-  setText('speedEndpointDetail', '');
-  setText('speedHintText', '等待开始国内测速。');
+  setText('speedEndpoint', speedEndpointLabel());
+  setText('speedEndpointDetail', '用户浏览器 → 当前部署节点');
+  setSpeedHint('等待开始浏览器测速。该测试会真实占用当前用户设备的上下行带宽。');
 }
 
-function setDomesticSpeedLoading() {
-  startSpeedPulse();
+function setBrowserSpeedPreparing() {
   document.getElementById('speedSpinner').style.display = 'block';
   document.getElementById('speedCard').style.borderColor = 'var(--accent-blue)';
   setText('speedStatus', '测速准备中...');
   setText('speedDownload', '-- Mbps');
-  setText('speedSummary', '正在通过本地桥接执行 iNetSpeed-CLI，通常需要 10-30 秒。');
+  setText('speedSummary', '正在初始化浏览器测速并校验部署节点可用性。');
   setText('speedDownloadDetail', '-');
   setText('speedUpload', '-');
   setText('speedUploadDetail', '');
   setText('speedIdleLatency', '-');
   setText('speedIdleLatencyDetail', '');
-  setText('speedEndpoint', '-');
-  setText('speedEndpointDetail', '');
-  setText('speedHintText', '正在收集节点选择、延迟、下载和上传结果。');
+  setText('speedEndpoint', speedEndpointLabel());
+  setText('speedEndpointDetail', '用户浏览器 → 当前部署节点');
+  setSpeedHint('测速流量将直接由当前浏览器发起，你本地网卡应会出现真实流量变化。');
 }
 
-function renderDomesticSpeedResult(result) {
-  stopSpeedPulse();
-  const rounds = Array.isArray(result.rounds) ? result.rounds : [];
-  const selected = result.selected_endpoint || {};
-  const idleLatency = result.idle_latency || {};
-  const downloadSingle = findRound(rounds, 'download', 1);
-  const downloadMulti = findRound(rounds, 'download', 4) || findRound(rounds, 'download', result.config?.threads || 4);
-  const uploadSingle = findRound(rounds, 'upload', 1);
-  const uploadMulti = findRound(rounds, 'upload', 4) || findRound(rounds, 'upload', result.config?.threads || 4);
-  const warnings = Array.isArray(result.warnings) ? result.warnings : [];
-  const idleMedian = typeof idleLatency.median_ms === 'number' ? idleLatency.median_ms : idleLatency.avg_ms;
-  const hintParts = [];
-
-  document.getElementById('speedSpinner').style.display = 'none';
-  document.getElementById('speedCard').style.borderColor = speedStateColor(result);
-  setText('speedStatus', result.degraded ? '已完成（含降级）' : '已完成');
-  setText('speedDownload', formatMbps(downloadMulti || downloadSingle));
-  setText(
-    'speedSummary',
-    result.degraded
-      ? '测速完成，但部分阶段存在降级或失败，请结合明细一起判断。'
-      : '测速完成，可作为国内链路表现的参考。'
-  );
-  setText('speedDownloadDetail', formatMbps(downloadSingle));
-  setText('speedUpload', formatMbps(uploadMulti || uploadSingle));
-  setText('speedUploadDetail', uploadSingle ? `单线程 ${formatMbps(uploadSingle)}` : '无单线程上传结果');
-  setText('speedIdleLatency', formatLatencyMs(idleMedian));
+function renderLatencyProgress(samples) {
+  const medianMs = median(samples);
+  const jitterMs = computeJitter(samples);
+  document.getElementById('speedSpinner').style.display = 'block';
+  document.getElementById('speedCard').style.borderColor = 'var(--accent-blue)';
+  setText('speedStatus', '延迟测试中...');
+  setText('speedDownload', '-- Mbps');
+  setText('speedSummary', '正在测量当前浏览器到部署节点的真实往返延迟。');
+  setText('speedDownloadDetail', `延迟采样 ${samples.length}/${LATENCY_SAMPLE_COUNT}`);
+  setText('speedUpload', '-');
+  setText('speedUploadDetail', '等待下载阶段开始');
+  setText('speedIdleLatency', formatLatencyMs(medianMs));
   setText(
     'speedIdleLatencyDetail',
-    typeof idleLatency.jitter_ms === 'number'
-      ? `抖动 ${formatLatencyMs(idleLatency.jitter_ms)}`
-      : `样本 ${idleLatency.samples || 0}`
+    jitterMs ? `抖动 ${formatLatencyMs(jitterMs)}` : `已获取 ${samples.length} 次样本`
   );
-  setText('speedEndpoint', selected.ip || '默认 DNS');
-  setText(
-    'speedEndpointDetail',
-    [selected.description, selected.status === 'ok' ? '选点成功' : '降级回退'].filter(Boolean).join(' · ')
-  );
-
-  if (result.bridge?.command_source) {
-    hintParts.push(`命令来源: ${result.bridge.command_source}`);
-  }
-  hintParts.push(`CLI 退出码: ${result.exit_code}`);
-  if (warnings.length > 0) {
-    hintParts.push(`告警: ${warnings.map((warning) => warning.message).join(' | ')}`);
-  }
-  setText('speedHintText', hintParts.join(' · ') || '国内测速已完成。');
-
-  addLog('国内测速', `节点 ${selected.ip || '默认 DNS'}${selected.description ? ` (${selected.description})` : ''}`, 'result', 'speed');
-  if (downloadMulti || downloadSingle) {
-    addLog('国内测速', `多线程下载 ${formatMbps(downloadMulti || downloadSingle)}`, result.degraded ? 'info' : 'result', 'speed');
-  }
-  if (uploadMulti || uploadSingle) {
-    addLog('国内测速', `多线程上传 ${formatMbps(uploadMulti || uploadSingle)}`, result.degraded ? 'info' : 'result', 'speed');
-  }
-  if (idleMedian) {
-    addLog('国内测速', `空载延迟 ${formatLatencyMs(idleMedian)}`, 'info', 'speed');
-  }
-  addLog('国内测速', result.degraded ? '测速完成，但包含降级阶段' : '测速完成 ✓', result.degraded ? 'info' : 'result', 'speed');
+  setText('speedEndpoint', speedEndpointLabel());
+  setText('speedEndpointDetail', '用户浏览器 → 当前部署节点');
+  setSpeedHint('测速过程由当前浏览器直接发起，不会再读取服务器自身的 CLI 带宽结果。');
 }
 
-function renderDomesticSpeedError(message) {
-  stopSpeedPulse();
+async function measureBrowserLatency(sampleCount = LATENCY_SAMPLE_COUNT) {
+  const samples = [];
+  for (let index = 0; index < sampleCount; index += 1) {
+    const startedAt = performance.now();
+    const response = await fetch(`${BROWSER_SPEED_PING_API}?r=${Date.now()}-${index}`, {
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-store' },
+    });
+    if (!response.ok) {
+      throw new Error(`延迟探测失败 (${response.status})`);
+    }
+    await response.json().catch(() => ({}));
+    const durationMs = performance.now() - startedAt;
+    samples.push(durationMs);
+    renderLatencyProgress(samples);
+    addLog('浏览器测速', `延迟样本 ${index + 1}: ${formatLatencyMs(durationMs)}`, 'info', 'speed');
+    await delay(120);
+  }
+
+  return {
+    samples,
+    medianMs: median(samples),
+    avgMs: average(samples),
+    jitterMs: computeJitter(samples),
+    minMs: Math.min(...samples),
+    maxMs: Math.max(...samples),
+  };
+}
+
+function renderDownloadProgress(progress, latencyStats) {
+  document.getElementById('speedSpinner').style.display = 'block';
+  document.getElementById('speedCard').style.borderColor = 'var(--accent-blue)';
+  setText('speedStatus', '下载测速中...');
+  setText('speedDownload', formatMbps(progress.currentMbps));
+  setText('speedSummary', '正在从当前浏览器下载测试流量，数值会随着真实吞吐实时变化。');
+  setText(
+    'speedDownloadDetail',
+    `${formatBytesMiB(progress.transferredBytes)} / ${formatBytesMiB(progress.totalBytes)} · 平均 ${formatMbps(progress.averageMbps)}`
+  );
+  setText('speedUpload', '-');
+  setText('speedUploadDetail', '等待上传阶段开始');
+  setText('speedIdleLatency', formatLatencyMs(latencyStats.medianMs));
+  setText(
+    'speedIdleLatencyDetail',
+    latencyStats.jitterMs ? `抖动 ${formatLatencyMs(latencyStats.jitterMs)}` : `样本 ${latencyStats.samples.length}`
+  );
+  setText('speedEndpoint', speedEndpointLabel());
+  setText('speedEndpointDetail', '用户浏览器 → 当前部署节点');
+  setSpeedHint('当前大号数字是用户浏览器的实时下载速度，流量会真实经过你的本地网络。');
+}
+
+async function runBrowserDownloadTest(totalBytes, latencyStats) {
+  const response = await fetch(`${BROWSER_SPEED_DOWNLOAD_API}?bytes=${totalBytes}&r=${Date.now()}`, {
+    cache: 'no-store',
+    headers: { 'Cache-Control': 'no-store' },
+  });
+  if (!response.ok) {
+    throw new Error(`下载测速失败 (${response.status})`);
+  }
+
+  const startedAt = performance.now();
+  let transferredBytes = 0;
+  let emittedAt = startedAt;
+  let emittedBytes = 0;
+  let peakMbps = 0;
+
+  if (!response.body || !response.body.getReader) {
+    const buffer = await response.arrayBuffer();
+    const elapsedMs = performance.now() - startedAt;
+    const averageMbps = bytesToMbps(buffer.byteLength, elapsedMs);
+    renderDownloadProgress(
+      {
+        currentMbps: averageMbps,
+        averageMbps,
+        transferredBytes: buffer.byteLength,
+        totalBytes: buffer.byteLength,
+      },
+      latencyStats
+    );
+    return {
+      mbps: averageMbps,
+      peakMbps: averageMbps,
+      totalBytes: buffer.byteLength,
+      durationMs: elapsedMs,
+    };
+  }
+
+  const reader = response.body.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    transferredBytes += value.byteLength;
+    const now = performance.now();
+    if (now - emittedAt >= PROGRESS_THROTTLE_MS) {
+      const instantMbps = bytesToMbps(transferredBytes - emittedBytes, now - emittedAt);
+      const averageMbps = bytesToMbps(transferredBytes, now - startedAt);
+      peakMbps = Math.max(peakMbps, instantMbps || 0, averageMbps || 0);
+      renderDownloadProgress(
+        {
+          currentMbps: instantMbps || averageMbps,
+          averageMbps,
+          transferredBytes,
+          totalBytes,
+        },
+        latencyStats
+      );
+      emittedAt = now;
+      emittedBytes = transferredBytes;
+    }
+  }
+
+  const elapsedMs = performance.now() - startedAt;
+  const averageMbps = bytesToMbps(transferredBytes, elapsedMs);
+  peakMbps = Math.max(peakMbps, averageMbps || 0);
+  renderDownloadProgress(
+    {
+      currentMbps: averageMbps,
+      averageMbps,
+      transferredBytes,
+      totalBytes,
+    },
+    latencyStats
+  );
+  return {
+    mbps: averageMbps,
+    peakMbps,
+    totalBytes: transferredBytes,
+    durationMs: elapsedMs,
+  };
+}
+
+function renderUploadProgress(progress, latencyStats, downloadStats) {
+  document.getElementById('speedSpinner').style.display = 'block';
+  document.getElementById('speedCard').style.borderColor = 'var(--accent-yellow)';
+  setText('speedStatus', '上传测速中...');
+  setText('speedDownload', formatMbps(progress.currentMbps));
+  setText('speedSummary', '正在从当前浏览器上传测试流量，数值会随着真实上行实时变化。');
+  setText(
+    'speedDownloadDetail',
+    `${formatMbps(downloadStats.mbps)} · 下载样本 ${formatBytesMiB(downloadStats.totalBytes)}`
+  );
+  setText('speedUpload', formatMbps(progress.averageMbps));
+  setText(
+    'speedUploadDetail',
+    `${formatBytesMiB(progress.transferredBytes)} / ${formatBytesMiB(progress.totalBytes)} · 当前 ${formatMbps(progress.currentMbps)}`
+  );
+  setText('speedIdleLatency', formatLatencyMs(latencyStats.medianMs));
+  setText(
+    'speedIdleLatencyDetail',
+    latencyStats.jitterMs ? `抖动 ${formatLatencyMs(latencyStats.jitterMs)}` : `样本 ${latencyStats.samples.length}`
+  );
+  setText('speedEndpoint', speedEndpointLabel());
+  setText('speedEndpointDetail', '用户浏览器 → 当前部署节点');
+  setSpeedHint('上传阶段会真实占用当前浏览器所在设备的上行带宽，观察本地网卡更容易看到变化。', 'warn');
+}
+
+function runBrowserUploadTest(totalBytes, latencyStats, downloadStats) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const payload = new Uint8Array(totalBytes);
+    let startedAt = 0;
+    let emittedAt = 0;
+    let emittedBytes = 0;
+    let peakMbps = 0;
+
+    xhr.open('POST', `${BROWSER_SPEED_UPLOAD_API}?r=${Date.now()}`, true);
+    xhr.responseType = 'json';
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+
+    xhr.upload.onloadstart = () => {
+      startedAt = performance.now();
+      emittedAt = startedAt;
+    };
+
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable) {
+        return;
+      }
+      const now = performance.now();
+      const effectiveStartedAt = startedAt || now;
+      if (!startedAt) {
+        startedAt = now;
+        emittedAt = now;
+      }
+      if (now - emittedAt < PROGRESS_THROTTLE_MS && event.loaded !== event.total) {
+        return;
+      }
+      const instantMbps = bytesToMbps(event.loaded - emittedBytes, now - emittedAt);
+      const averageMbps = bytesToMbps(event.loaded, now - effectiveStartedAt);
+      peakMbps = Math.max(peakMbps, instantMbps || 0, averageMbps || 0);
+      renderUploadProgress(
+        {
+          currentMbps: instantMbps || averageMbps,
+          averageMbps,
+          transferredBytes: event.loaded,
+          totalBytes: event.total || totalBytes,
+        },
+        latencyStats,
+        downloadStats
+      );
+      emittedAt = now;
+      emittedBytes = event.loaded;
+    };
+
+    xhr.onload = () => {
+      if (xhr.status < 200 || xhr.status >= 300) {
+        reject(new Error(`上传测速失败 (${xhr.status})`));
+        return;
+      }
+      const elapsedMs = performance.now() - startedAt;
+      const response = xhr.response && typeof xhr.response === 'object'
+        ? xhr.response
+        : JSON.parse(xhr.responseText || '{}');
+      const transferredBytes = typeof response.receivedBytes === 'number' ? response.receivedBytes : totalBytes;
+      const averageMbps = bytesToMbps(transferredBytes, elapsedMs);
+      peakMbps = Math.max(peakMbps, averageMbps || 0);
+      renderUploadProgress(
+        {
+          currentMbps: averageMbps,
+          averageMbps,
+          transferredBytes,
+          totalBytes: transferredBytes,
+        },
+        latencyStats,
+        downloadStats
+      );
+      resolve({
+        mbps: averageMbps,
+        peakMbps,
+        totalBytes: transferredBytes,
+        durationMs: elapsedMs,
+      });
+    };
+
+    xhr.onerror = () => reject(new Error('上传测速网络异常'));
+    xhr.ontimeout = () => reject(new Error('上传测速超时'));
+    xhr.timeout = 120000;
+    xhr.send(payload);
+  });
+}
+
+function renderBrowserSpeedResult({ latency, download, upload }) {
+  document.getElementById('speedSpinner').style.display = 'none';
+  document.getElementById('speedCard').style.borderColor = 'var(--accent-green)';
+  setText('speedStatus', '已完成');
+  setText('speedDownload', formatMbps(download.mbps));
+  setText('speedSummary', '浏览器测速完成，结果反映当前用户浏览器到当前部署节点的真实链路表现。');
+  setText('speedDownloadDetail', `${formatMbps(download.mbps)} · 下载样本 ${formatBytesMiB(download.totalBytes)}`);
+  setText('speedUpload', formatMbps(upload.mbps));
+  setText('speedUploadDetail', `${formatBytesMiB(upload.totalBytes)} 上传样本 · 峰值 ${formatMbps(upload.peakMbps)}`);
+  setText('speedIdleLatency', formatLatencyMs(latency.medianMs));
+  setText('speedIdleLatencyDetail', `抖动 ${formatLatencyMs(latency.jitterMs)} · ${latency.samples.length} 次采样`);
+  setText('speedEndpoint', speedEndpointLabel());
+  setText('speedEndpointDetail', '用户浏览器 → 当前部署节点');
+  setSpeedHint('该结果来自当前浏览器真实发起的下载与上传流量，你本地网卡应能看到实际吞吐变化。', 'success');
+
+  addLog('浏览器测速', `目标节点 ${speedEndpointLabel()}`, 'info', 'speed');
+  addLog('浏览器测速', `下载速度 ${formatMbps(download.mbps)}`, 'result', 'speed');
+  addLog('浏览器测速', `上传速度 ${formatMbps(upload.mbps)}`, 'result', 'speed');
+  addLog('浏览器测速', `往返延迟 ${formatLatencyMs(latency.medianMs)}`, 'info', 'speed');
+  addLog('浏览器测速', '浏览器测速完成 ✓', 'result', 'speed');
+}
+
+function renderBrowserSpeedError(message) {
   document.getElementById('speedSpinner').style.display = 'none';
   document.getElementById('speedCard').style.borderColor = 'var(--accent-red)';
   setText('speedStatus', '测速失败');
   setText('speedDownload', '-- Mbps');
-  setText('speedSummary', '无法完成国内测速');
+  setText('speedSummary', '无法完成浏览器测速');
   setText('speedDownloadDetail', '-');
   setText('speedUpload', '-');
   setText('speedUploadDetail', '');
   setText('speedIdleLatency', '-');
   setText('speedIdleLatencyDetail', '');
-  setText('speedEndpoint', '-');
-  setText('speedEndpointDetail', '');
-  setText('speedHintText', message);
-  addLog('国内测速', message, 'fail', 'speed');
+  setText('speedEndpoint', speedEndpointLabel());
+  setText('speedEndpointDetail', '用户浏览器 → 当前部署节点');
+  setSpeedHint(message, 'fail');
+  addLog('浏览器测速', message, 'fail', 'speed');
 }
 
 function probeSTUN(stunUrl, serverName) {
@@ -526,32 +701,39 @@ async function startDetection() {
   btn.textContent = '重新检测';
 }
 
-async function startDomesticSpeedTest() {
-  const btn = document.getElementById('cnSpeedBtn');
+async function startBrowserSpeedTest() {
+  const btn = document.getElementById('browserSpeedBtn');
   btn.disabled = true;
   btn.textContent = '测速中...';
 
   hideSection('resultSection');
   showSection('speedResultSection');
   resetLogs('speed');
-  setDomesticSpeedLoading();
-  addLog('国内测速', '开始调用本地桥接服务...', 'info', 'speed');
+  setBrowserSpeedPreparing();
+  addLog('浏览器测速', '开始从当前浏览器发起真实下载与上传测试...', 'info', 'speed');
 
   try {
-    const response = await fetch(DOMESTIC_SPEED_API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
+    const warmup = await fetch(`${BROWSER_SPEED_PING_API}?warmup=${Date.now()}`, {
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-store' },
     });
-
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || payload.ok === false) {
-      throw new Error(payload.error || `桥接服务返回 ${response.status}`);
+    if (!warmup.ok) {
+      throw new Error(`测速端点不可用 (${warmup.status})`);
     }
+    await warmup.json().catch(() => ({}));
 
-    renderDomesticSpeedResult(payload.raw || payload.result || payload);
+    const latency = await measureBrowserLatency();
+    addLog('浏览器测速', `延迟中位数 ${formatLatencyMs(latency.medianMs)}`, 'info', 'speed');
+
+    const download = await runBrowserDownloadTest(DOWNLOAD_SAMPLE_BYTES, latency);
+    addLog('浏览器测速', `下载阶段完成 ${formatMbps(download.mbps)}`, 'result', 'speed');
+
+    const upload = await runBrowserUploadTest(UPLOAD_SAMPLE_BYTES, latency, download);
+    addLog('浏览器测速', `上传阶段完成 ${formatMbps(upload.mbps)}`, 'result', 'speed');
+
+    renderBrowserSpeedResult({ latency, download, upload });
   } catch (error) {
-    renderDomesticSpeedError(error instanceof Error ? error.message : '国内测速失败');
+    renderBrowserSpeedError(error instanceof Error ? error.message : '浏览器测速失败');
   } finally {
     document.getElementById('speedSpinner').style.display = 'none';
     btn.disabled = false;
@@ -559,4 +741,4 @@ async function startDomesticSpeedTest() {
   }
 }
 
-resetDomesticSpeedCard();
+resetBrowserSpeedCard();

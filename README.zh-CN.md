@@ -10,11 +10,12 @@
 
 - 浏览器内基于 WebRTC 的 NAT 检测
 - IPv6 与 MTU 检查
-- 通过 `iNetSpeed-CLI` 桥接实现的国内测速能力
+- 当前用户浏览器到部署节点的真实下载与上传测速
+- 保留可选的 `iNetSpeed-CLI` 服务端测速桥接，便于运维侧诊断
 
 ## 项目结构
 
-- `Web/`：浏览器端界面与本地桥接服务
+- `Web/`：浏览器端界面、浏览器测速接口与可选 CLI 桥接服务
 - `CLI/`：Shell 与 PowerShell NAT 检测脚本
 - `Tests/`：模拟 STUN 与 UDP 辅助测试代码
 
@@ -22,14 +23,16 @@
 
 ```bash
 cd Web
-INETSPEED_CLI_REPO=/path/to/iNetSpeed-CLI python3 serve.py
+python3 serve.py
 ```
 
 然后打开 `http://127.0.0.1:8080`。
 
+如果你仍然需要使用可选的 `iNetSpeed-CLI` 服务端测速接口，再额外设置 `INETSPEED_CLI_REPO` 或把 `speedtest` 安装到 `PATH`。
+
 ## 使用 Docker 运行
 
-镜像内已经打包 vendored 版本的 `iNetSpeed-CLI`，宿主机不需要额外安装 `speedtest`，并且 `docker build` 过程中也不再依赖从 GitHub 在线拉取源码。
+镜像默认直接提供浏览器测速接口。同时镜像内也打包了 vendored 版本的 `iNetSpeed-CLI` 以保留可选的服务端测速诊断能力，宿主机不需要额外安装 `speedtest`，并且 `docker build` 过程中也不再依赖从 GitHub 在线拉取源码。
 
 使用 Docker 构建并运行：
 
