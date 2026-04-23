@@ -293,5 +293,12 @@
   - 验证：`cd inetspeed && go test ./...`
   - 验证：Chrome CDP 打开默认页 `http://127.0.0.1:8132/` 并点击 `Apple 单线程测速` 后，页面状态为 `已完成 · Estimated`，显示原生下载 `<0.1 Mbps`、原生上传 `34.2 Mbps`，且未触发 `[FALLBACK_SINK]`。
   - 验证：Chrome CDP 在同页点击 `Apple 多线程测速` 后，页面状态为 `已完成 · Estimated`，显示原生下载 `<0.1 Mbps`、原生上传 `20.5 Mbps`，且未触发 `[FALLBACK_SINK]`。
+## 目标清单（GHCR 发布复核）
+- [x] ~~**目标:** 复核 GHCR 镜像是否已随最新提交发布，并修复 ClawCloud 使用 `latest` 镜像未更新的问题~~ (创建于: 2026-04-24 01:13:39 | **完成于: 2026-04-24 01:16:27**)
+  - 复核：GitHub Actions `Publish GHCR Image` 最近一次运行 `24846810177` 已 `completed/success`，对应提交 `d64f9e9688e7336944bf61181cd4ddb7d37bb366`。
+  - 复核：`ghcr.io/zhizhishu/echo-nat-speed:latest` 的 OCI 标签 `org.opencontainers.image.revision` 已指向 `d64f9e9688e7336944bf61181cd4ddb7d37bb366`。
+  - 复核：`ghcr.io/zhizhishu/echo-nat-speed:sha-d64f9e9` 标签存在，可作为 ClawCloud 强制拉取的稳定版本标签。
+  - 结论：镜像推送本身已完成；ClawCloud 若仍只看到 `GET /`，这与当前原生侧信道路径一致——原生 `no-cors` 下载/上传不会命中 `/api/browser-speed/*`，服务端日志只会保留页面加载。
+  - 建议：ClawCloud 侧优先改用 `ghcr.io/zhizhishu/echo-nat-speed:sha-d64f9e9` 重新部署，避免 `latest` 缓存；浏览器侧执行强制刷新，确认页面标题文案已变为“默认先跑已知大小的 small probe...”。
 
 [Project Finalized: All Objectives Completed] - 2026-04-23
