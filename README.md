@@ -10,12 +10,12 @@ Public container image:
 
 - WebRTC-based NAT detection in the browser
 - IPv6 and MTU checks
-- Apple CDN domestic speed tests powered by `iNetSpeed-CLI`
-- Separate single-thread and multi-thread test entry points
+- Real browser-side download and upload tests from the user to the current speed node
+- An optional server-side `iNetSpeed-CLI` bridge kept for operator-side diagnostics
 
 ## Structure
 
-- `Web/`: browser UI, domestic speed bridge server, and optional low-level browser speed APIs
+- `Web/`: browser UI, browser speed APIs, and optional CLI bridge server
 - `CLI/`: shell and PowerShell NAT detection scripts
 - `Tests/`: mock STUN and UDP helpers
 
@@ -28,11 +28,13 @@ python3 serve.py
 
 Then open `http://127.0.0.1:8080`.
 
-The default web speed test uses the bundled `iNetSpeed-CLI` bridge. If you want to override the CLI source, set `INETSPEED_CLI_REPO` or install `speedtest` into `PATH`.
+If you still want to use the optional server-side `iNetSpeed-CLI` bridge API, set `INETSPEED_CLI_REPO` or install `speedtest` into `PATH`.
+
+Note: the default web speed result is always measured by the user's browser. The bundled `iNetSpeed-CLI` API is server-side diagnostics only and should not be treated as the user's speed result.
 
 ## Run with Docker
 
-The container image exposes the Apple CDN domestic speed bridge by default. It also bundles a vendored copy of `iNetSpeed-CLI`, so the host machine does not need to install `speedtest` separately and the image build no longer depends on cloning GitHub during `docker build`.
+The container image exposes browser speed endpoints by default. It also bundles a vendored copy of `iNetSpeed-CLI` for optional server-side diagnostics, so the host machine does not need to install `speedtest` separately and the image build no longer depends on cloning GitHub during `docker build`.
 
 Build and run with Docker:
 

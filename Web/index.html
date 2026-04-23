@@ -30,16 +30,16 @@
   <!-- Hero -->
   <section class="hero" id="detect">
     <h1>在线检测 <span class="gradient-text">NAT 类型</span></h1>
-    <p class="subtitle">基于 WebRTC STUN 与 Apple CDN 国内测速，识别当前网络 NAT 状态，并补充适合国内链路参考的延迟、下载和上传表现。</p>
+    <p class="subtitle">基于 WebRTC STUN 与用户浏览器真实上下行流量，识别当前网络 NAT 状态，并补充当前测速节点的延迟、下载和上传表现。</p>
     <div class="hero-actions">
       <button id="startBtn" class="btn-primary" onclick="startDetection()">
         开始 NAT 检测
       </button>
-      <button id="singleSpeedBtn" class="btn-secondary" onclick="startDomesticSpeedTest('single')">
-        国内单线程测速
+      <button id="singleSpeedBtn" class="btn-secondary" onclick="startBrowserSpeedTest('single')">
+        单线程测速
       </button>
-      <button id="multiSpeedBtn" class="btn-secondary" onclick="startDomesticSpeedTest('multi')">
-        国内多线程测速
+      <button id="multiSpeedBtn" class="btn-secondary" onclick="startBrowserSpeedTest('multi')">
+        多线程测速
       </button>
     </div>
   </section>
@@ -107,63 +107,73 @@
   <section class="result-section speed-result-section" id="speedResultSection" style="display:none;">
     <div class="card card-main speed-card" id="speedCard">
       <div class="card-header">
-        <span class="card-tag">国内测速</span>
+        <span class="card-tag">用户测速</span>
         <span class="card-status" id="speedStatus">等待测试</span>
       </div>
 
       <div class="speed-overview">
         <div class="spinner" id="speedSpinner" style="display:none;"></div>
-        <div class="speed-main-value" id="speedMainValue">-- / -- Mbps</div>
-        <div class="speed-main-label" id="speedSummary">Apple CDN 国内测速</div>
+        <div class="speed-main-value" id="speedMainValue">-- Mbps</div>
+        <div class="speed-main-label" id="speedSummary">用户浏览器发起真实下载与上传流量</div>
       </div>
 
       <div class="speed-metrics" id="speedMetrics">
         <div class="speed-metric">
-          <span class="speed-metric-label">下载速率</span>
-          <span class="speed-metric-value" id="speedDownload">-</span>
-          <span class="metric-detail" id="speedDownloadDetail">等待测速</span>
+          <span class="speed-metric-label">多线程下载</span>
+          <span class="speed-metric-value" id="speedDownloadMulti">-</span>
+          <span class="metric-detail" id="speedDownloadMultiDetail">独立执行多线程测速后显示</span>
         </div>
         <div class="speed-metric">
-          <span class="speed-metric-label">上传速率</span>
-          <span class="speed-metric-value" id="speedUpload">-</span>
-          <span class="metric-detail" id="speedUploadDetail">等待测速</span>
+          <span class="speed-metric-label">下载单线程</span>
+          <span class="speed-metric-value" id="speedDownloadSingle">-</span>
+          <span class="metric-detail" id="speedDownloadSingleDetail">独立执行单线程测速后显示</span>
+        </div>
+        <div class="speed-metric">
+          <span class="speed-metric-label">多线程上传</span>
+          <span class="speed-metric-value" id="speedUploadMulti">-</span>
+          <span class="metric-detail" id="speedUploadMultiDetail">独立执行多线程测速后显示</span>
+        </div>
+        <div class="speed-metric">
+          <span class="speed-metric-label">上传单线程</span>
+          <span class="speed-metric-value" id="speedUploadSingle">-</span>
+          <span class="metric-detail" id="speedUploadSingleDetail">独立执行单线程测速后显示</span>
         </div>
         <div class="speed-metric">
           <span class="speed-metric-label">空载延迟</span>
           <span class="speed-metric-value" id="speedLatencyIdle">-</span>
-          <span class="metric-detail" id="speedLatencyIdleDetail">等待测速</span>
+          <span class="metric-detail" id="speedLatencyIdleDetail">测速前基线</span>
         </div>
         <div class="speed-metric">
           <span class="speed-metric-label">下载负载延迟</span>
           <span class="speed-metric-value" id="speedLatencyDownload">-</span>
-          <span class="metric-detail" id="speedLatencyDownloadDetail">等待测速</span>
+          <span class="metric-detail" id="speedLatencyDownloadDetail">当前测速模式的下载阶段同步采样</span>
         </div>
         <div class="speed-metric">
           <span class="speed-metric-label">上传负载延迟</span>
           <span class="speed-metric-value" id="speedLatencyUpload">-</span>
-          <span class="metric-detail" id="speedLatencyUploadDetail">等待测速</span>
+          <span class="metric-detail" id="speedLatencyUploadDetail">当前测速模式的上传阶段同步采样</span>
         </div>
         <div class="speed-metric">
           <span class="speed-metric-label">抖动</span>
           <span class="speed-metric-value" id="speedJitter">-</span>
-          <span class="metric-detail" id="speedJitterDetail">等待测速</span>
+          <span class="metric-detail" id="speedJitterDetail">空载延迟波动</span>
         </div>
         <div class="speed-metric speed-metric-wide">
           <span class="speed-metric-label">测速节点</span>
           <span class="speed-metric-value speed-metric-endpoint" id="speedEndpoint">-</span>
-          <span class="metric-detail" id="speedEndpointDetail">Apple CDN 自动选点</span>
+          <span class="metric-detail" id="speedEndpointDetail">用户浏览器 → 当前测速节点</span>
         </div>
       </div>
 
       <div class="speed-hint-box" id="speedHintBox">
-        <div class="speed-hint-title">测速来源</div>
-        <div class="speed-hint-text" id="speedHintText">来源：iNetSpeed-CLI · Apple CDN</div>
+        <div class="speed-hint-title">提示信息</div>
+        <div class="speed-hint-text" id="speedHintText">等待开始测速。</div>
       </div>
     </div>
 
     <div class="card card-log">
       <div class="card-header">
-        <span class="card-tag">国内测速日志</span>
+        <span class="card-tag">测速日志</span>
         <span class="log-count" id="speedLogCount">0 条</span>
       </div>
       <div class="log-body" id="speedLogBody"></div>

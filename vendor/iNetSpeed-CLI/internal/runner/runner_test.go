@@ -50,7 +50,6 @@ func TestRunSkipsDuplicateRoundsWhenThreadsIsOne(t *testing.T) {
 		Timeout:        2,
 		Threads:        1,
 		LatencyCount:   2,
-		RoundMode:      config.RoundModeFull,
 		EndpointIP:     host,
 		NoMetadata:     true,
 		NonInteractive: true,
@@ -84,7 +83,6 @@ func TestRunWarnsOnMixedHosts(t *testing.T) {
 		Timeout:        2,
 		Threads:        1,
 		LatencyCount:   1,
-		RoundMode:      config.RoundModeFull,
 		NoMetadata:     true,
 		NonInteractive: true,
 	}
@@ -111,40 +109,6 @@ func TestRunWarnsOnMixedHosts(t *testing.T) {
 	}
 }
 
-func TestRunRoundModeMultiOnlyRunsMultiRounds(t *testing.T) {
-	srv := mockRunnerServer()
-	defer srv.Close()
-
-	host := endpoint.HostFromURL(srv.URL)
-	cfg := &config.Config{
-		DLURL:          srv.URL + "/large",
-		ULURL:          srv.URL + "/slurp",
-		LatencyURL:     srv.URL + "/small",
-		Max:            "512K",
-		MaxBytes:       512 * 1024,
-		Timeout:        2,
-		Threads:        4,
-		LatencyCount:   2,
-		RoundMode:      config.RoundModeMulti,
-		EndpointIP:     host,
-		NoMetadata:     true,
-		NonInteractive: true,
-	}
-
-	bus := render.NewBus(render.NewPlainRenderer(&strings.Builder{}))
-	defer bus.Close()
-
-	result := Run(context.Background(), cfg, bus, false)
-	if len(result.Rounds) != 2 {
-		t.Fatalf("expected 2 rounds, got %d", len(result.Rounds))
-	}
-	for _, round := range result.Rounds {
-		if round.Threads != 4 {
-			t.Fatalf("expected multi-thread round, got %+v", round)
-		}
-	}
-}
-
 func TestRunResultJSONGolden(t *testing.T) {
 	fixture := RunResult{
 		SchemaVersion: 1,
@@ -157,7 +121,6 @@ func TestRunResultJSONGolden(t *testing.T) {
 			TimeoutSeconds: 10,
 			Threads:        4,
 			LatencyCount:   20,
-			RoundMode:      config.RoundModeFull,
 			JSON:           true,
 			NonInteractive: true,
 			EndpointIP:     "1.1.1.1",

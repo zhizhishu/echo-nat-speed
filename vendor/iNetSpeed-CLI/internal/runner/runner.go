@@ -27,7 +27,6 @@ func Run(ctx context.Context, cfg *config.Config, bus *render.Bus, isTTY bool) R
 			TimeoutSeconds: cfg.Timeout,
 			Threads:        cfg.Threads,
 			LatencyCount:   cfg.LatencyCount,
-			RoundMode:      cfg.RoundMode,
 			JSON:           cfg.OutputJSON,
 			NonInteractive: cfg.NonInteractive,
 			EndpointIP:     cfg.EndpointIP,
@@ -185,16 +184,12 @@ func Run(ctx context.Context, cfg *config.Config, bus *render.Bus, isTTY bool) R
 		}
 	}
 
-	if cfg.ShouldRunSingleRounds() {
-		runRound(transfer.Download, 1, i18n.Text("Download (single thread)", "下载（单线程）"), cfg.DLURL)
-	}
-	if cfg.ShouldRunMultiRounds() {
+	runRound(transfer.Download, 1, i18n.Text("Download (single thread)", "下载（单线程）"), cfg.DLURL)
+	if cfg.Threads > 1 {
 		runRound(transfer.Download, cfg.Threads, i18n.Text("Download (multi-thread)", "下载（多线程）"), cfg.DLURL)
 	}
-	if cfg.ShouldRunSingleRounds() {
-		runRound(transfer.Upload, 1, i18n.Text("Upload (single thread)", "上传（单线程）"), cfg.ULURL)
-	}
-	if cfg.ShouldRunMultiRounds() {
+	runRound(transfer.Upload, 1, i18n.Text("Upload (single thread)", "上传（单线程）"), cfg.ULURL)
+	if cfg.Threads > 1 {
 		runRound(transfer.Upload, cfg.Threads, i18n.Text("Upload (multi-thread)", "上传（多线程）"), cfg.ULURL)
 	}
 

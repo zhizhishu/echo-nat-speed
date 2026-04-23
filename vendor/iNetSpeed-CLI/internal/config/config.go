@@ -22,14 +22,7 @@ const (
 	DefaultTimeout      = 10
 	DefaultThreads      = 4
 	DefaultLatencyCount = 20
-	DefaultRoundMode    = "full"
 	UserAgent           = "networkQuality/194.80.3 CFNetwork/3860.400.51 Darwin/25.3.0"
-)
-
-const (
-	RoundModeFull   = "full"
-	RoundModeSingle = "single"
-	RoundModeMulti  = "multi"
 )
 
 var ErrHelp = errors.New("help requested")
@@ -43,7 +36,6 @@ type Config struct {
 	Timeout        int
 	Threads        int
 	LatencyCount   int
-	RoundMode      string
 	OutputJSON     bool
 	NonInteractive bool
 	EndpointIP     string
@@ -67,16 +59,15 @@ func Usage() string {
   --timeout SECONDS             单线程超时（秒），范围 1-120（默认取 TIMEOUT 或 %d）
   --threads N                   并发线程数，范围 1-64（默认取 THREADS 或 %d）
   --latency-count N             延迟采样次数，范围 1-100（默认取 LATENCY_COUNT 或 %d）
-  --round-mode MODE             轮次模式：full/single/multi（默认取 ROUND_MODE 或 %q）
   --json                        输出单个 JSON 文档到 stdout
   --non-interactive             禁用节点交互选择并自动选点
   --endpoint IP                 指定固定节点 IP，跳过发现流程
   --no-metadata                 跳过客户端/服务端 ASN 与地理信息查询
 
 环境变量:
-  DL_URL, UL_URL, LATENCY_URL, MAX, TIMEOUT, THREADS, LATENCY_COUNT, ROUND_MODE
+  DL_URL, UL_URL, LATENCY_URL, MAX, TIMEOUT, THREADS, LATENCY_COUNT
   SPEEDTEST_LANG, LC_ALL, LC_MESSAGES, LANGUAGE, LANG
-`, DefaultDLURL, DefaultULURL, DefaultLatencyURL, DefaultMax, DefaultTimeout, DefaultThreads, DefaultLatencyCount, DefaultRoundMode)
+`, DefaultDLURL, DefaultULURL, DefaultLatencyURL, DefaultMax, DefaultTimeout, DefaultThreads, DefaultLatencyCount)
 	}
 
 	return fmt.Sprintf(`Usage:
@@ -94,16 +85,15 @@ Options:
   --timeout SECONDS             Per-thread timeout in seconds, 1-120 (default from TIMEOUT or %d)
   --threads N                   Concurrent threads, 1-64 (default from THREADS or %d)
   --latency-count N             Latency sample count, 1-100 (default from LATENCY_COUNT or %d)
-  --round-mode MODE             Round mode: full/single/multi (default from ROUND_MODE or %q)
   --json                        Output a single JSON document to stdout
   --non-interactive             Disable endpoint prompt and auto-select
   --endpoint IP                 Force a specific endpoint IP and skip discovery
   --no-metadata                 Skip client/server ASN and location lookup
 
 Environment variables:
-  DL_URL, UL_URL, LATENCY_URL, MAX, TIMEOUT, THREADS, LATENCY_COUNT, ROUND_MODE
+  DL_URL, UL_URL, LATENCY_URL, MAX, TIMEOUT, THREADS, LATENCY_COUNT
   SPEEDTEST_LANG, LC_ALL, LC_MESSAGES, LANGUAGE, LANG
-`, DefaultDLURL, DefaultULURL, DefaultLatencyURL, DefaultMax, DefaultTimeout, DefaultThreads, DefaultLatencyCount, DefaultRoundMode)
+`, DefaultDLURL, DefaultULURL, DefaultLatencyURL, DefaultMax, DefaultTimeout, DefaultThreads, DefaultLatencyCount)
 }
 
 func Load(args ...string) (*Config, error) {
@@ -124,7 +114,6 @@ func Load(args ...string) (*Config, error) {
 	timeout := envInt("TIMEOUT", DefaultTimeout)
 	threads := envInt("THREADS", DefaultThreads)
 	latencyCount := envInt("LATENCY_COUNT", DefaultLatencyCount)
-	roundMode := envOr("ROUND_MODE", DefaultRoundMode)
 	outputJSON := false
 	nonInteractive := false
 	endpointIP := ""
@@ -145,7 +134,6 @@ func Load(args ...string) (*Config, error) {
 		fs.IntVar(&timeout, "timeout", timeout, "per-thread timeout in seconds")
 		fs.IntVar(&threads, "threads", threads, "concurrent threads")
 		fs.IntVar(&latencyCount, "latency-count", latencyCount, "latency sample count")
-		fs.StringVar(&roundMode, "round-mode", roundMode, "round execution mode")
 		fs.BoolVar(&outputJSON, "json", outputJSON, "output JSON")
 		fs.BoolVar(&nonInteractive, "non-interactive", nonInteractive, "disable interactive endpoint selection")
 		fs.StringVar(&endpointIP, "endpoint", endpointIP, "force endpoint IP")
@@ -174,7 +162,6 @@ func Load(args ...string) (*Config, error) {
 		Timeout:        timeout,
 		Threads:        threads,
 		LatencyCount:   latencyCount,
-		RoundMode:      strings.ToLower(strings.TrimSpace(roundMode)),
 		OutputJSON:     outputJSON,
 		NonInteractive: nonInteractive,
 		EndpointIP:     endpointIP,
@@ -210,17 +197,6 @@ func Load(args ...string) (*Config, error) {
 	if c.LatencyCount > 100 {
 		return nil, errors.New(i18n.Text("LATENCY_COUNT must be <= 100", "LATENCY_COUNT 必须小于等于 100"))
 	}
-	if c.RoundMode == "" {
-		c.RoundMode = DefaultRoundMode
-	}
-	switch c.RoundMode {
-	case RoundModeFull, RoundModeSingle, RoundModeMulti:
-	default:
-		return nil, errors.New(i18n.Text("ROUND_MODE must be full, single or multi", "ROUND_MODE 必须为 full、single 或 multi"))
-	}
-	if c.RoundMode == RoundModeMulti && c.Threads < 2 {
-		return nil, errors.New(i18n.Text("ROUND_MODE multi requires THREADS >= 2", "ROUND_MODE 为 multi 时 THREADS 必须大于等于 2"))
-	}
 	if c.EndpointIP != "" && net.ParseIP(c.EndpointIP) == nil {
 		if i18n.IsZH() {
 			return nil, fmt.Errorf("节点 IP 无效 %q", c.EndpointIP)
@@ -244,19 +220,11 @@ func Load(args ...string) (*Config, error) {
 
 func (c *Config) Summary() string {
 	if i18n.IsZH() {
-		return fmt.Sprintf("超时=%ds  上限=%s  线程=%d  延迟采样=%d  轮次=%s  JSON=%t  无交互=%t  元数据=%t",
-			c.Timeout, c.Max, c.Threads, c.LatencyCount, c.RoundMode, c.OutputJSON, c.NonInteractive, !c.NoMetadata)
+		return fmt.Sprintf("超时=%ds  上限=%s  线程=%d  延迟采样=%d  JSON=%t  无交互=%t  元数据=%t",
+			c.Timeout, c.Max, c.Threads, c.LatencyCount, c.OutputJSON, c.NonInteractive, !c.NoMetadata)
 	}
-	return fmt.Sprintf("timeout=%ds  max=%s  threads=%d  latency_count=%d  round_mode=%s  json=%t  non_interactive=%t  metadata=%t",
-		c.Timeout, c.Max, c.Threads, c.LatencyCount, c.RoundMode, c.OutputJSON, c.NonInteractive, !c.NoMetadata)
-}
-
-func (c *Config) ShouldRunSingleRounds() bool {
-	return c.RoundMode == RoundModeFull || c.RoundMode == RoundModeSingle
-}
-
-func (c *Config) ShouldRunMultiRounds() bool {
-	return c.Threads > 1 && (c.RoundMode == RoundModeFull || c.RoundMode == RoundModeMulti)
+	return fmt.Sprintf("timeout=%ds  max=%s  threads=%d  latency_count=%d  json=%t  non_interactive=%t  metadata=%t",
+		c.Timeout, c.Max, c.Threads, c.LatencyCount, c.OutputJSON, c.NonInteractive, !c.NoMetadata)
 }
 
 var sizeRe = regexp.MustCompile(`(?i)^\s*([\d.]+)\s*([a-z]*)\s*$`)

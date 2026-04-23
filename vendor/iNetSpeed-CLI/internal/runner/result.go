@@ -14,7 +14,6 @@ type RunConfig struct {
 	TimeoutSeconds int    `json:"timeout_seconds"`
 	Threads        int    `json:"threads"`
 	LatencyCount   int    `json:"latency_count"`
-	RoundMode      string `json:"round_mode"`
 	JSON           bool   `json:"json"`
 	NonInteractive bool   `json:"non_interactive"`
 	EndpointIP     string `json:"endpoint_ip,omitempty"`

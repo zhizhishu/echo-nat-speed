@@ -65,10 +65,6 @@ def resolve_cli_command() -> tuple[list[str], Path | None, dict[str, str]]:
 
 
 def build_speedtest_args(payload: dict[str, object]) -> list[str]:
-    round_mode = str(payload.get("round_mode", os.getenv("INETSPEED_ROUND_MODE", "full"))).strip().lower()
-    if round_mode not in {"full", "single", "multi"}:
-        round_mode = "full"
-
     args = [
         "--json",
         "--non-interactive",
@@ -81,9 +77,7 @@ def build_speedtest_args(payload: dict[str, object]) -> list[str]:
         "--latency-count",
         str(payload.get("latency_count", os.getenv("INETSPEED_LATENCY_COUNT", "4"))),
         "--threads",
-        str(payload.get("threads", os.getenv("INETSPEED_THREADS", "4"))),
-        "--round-mode",
-        round_mode,
+        str(payload.get("threads", os.getenv("INETSPEED_THREADS", "2"))),
     ]
 
     endpoint = str(payload.get("endpoint", "")).strip()
@@ -100,67 +94,23 @@ def summarize_round(round_data: dict[str, object] | None) -> dict[str, object]:
     if not isinstance(round_data, dict):
         return {
             "name": None,
-            "threads": None,
             "status": "unavailable",
             "mbps": None,
             "durationMs": None,
             "totalBytes": None,
             "faultCount": 0,
-            "loadedLatency": summarize_latency(None),
-            "error": None,
+            "loadedLatency": {},
         }
 
     return {
         "name": round_data.get("name"),
-        "threads": round_data.get("threads"),
         "status": round_data.get("status"),
         "mbps": round_data.get("mbps"),
         "durationMs": round_data.get("duration_ms"),
         "totalBytes": round_data.get("total_bytes"),
         "faultCount": round_data.get("fault_count", 0),
-        "loadedLatency": summarize_latency(round_data.get("loaded_latency")),
-        "error": round_data.get("error"),
+        "loadedLatency": round_data.get("loaded_latency") or {},
     }
-
-
-def summarize_latency(latency_data: dict[str, object] | None) -> dict[str, object]:
-    if not isinstance(latency_data, dict):
-        return {
-            "status": "unavailable",
-            "samples": 0,
-            "medianMs": None,
-            "avgMs": None,
-            "jitterMs": None,
-            "minMs": None,
-            "maxMs": None,
-        }
-
-    return {
-        "status": latency_data.get("status"),
-        "samples": latency_data.get("samples"),
-        "medianMs": latency_data.get("median_ms"),
-        "avgMs": latency_data.get("avg_ms"),
-        "jitterMs": latency_data.get("jitter_ms"),
-        "minMs": latency_data.get("min_ms"),
-        "maxMs": latency_data.get("max_ms"),
-    }
-
-
-def pick_round(rounds: list[dict[str, object]], direction: str, round_mode: str) -> dict[str, object] | None:
-    candidates = [item for item in rounds if isinstance(item, dict) and item.get("direction") == direction]
-    if not candidates:
-        return None
-
-    if round_mode == "single":
-        single_round = next((item for item in candidates if int(item.get("threads") or 0) == 1), None)
-        return single_round or candidates[0]
-
-    if round_mode == "multi":
-        multi_rounds = [item for item in candidates if int(item.get("threads") or 0) > 1]
-        if multi_rounds:
-            return max(multi_rounds, key=lambda item: float(item.get("mbps") or 0))
-
-    return max(candidates, key=lambda item: float(item.get("mbps") or 0))
 
 
 def summarize_result(result: dict[str, object], command: list[str], source: dict[str, str]) -> dict[str, object]:
@@ -168,19 +118,19 @@ def summarize_result(result: dict[str, object], command: list[str], source: dict
     if not isinstance(rounds, list):
         rounds = []
 
-    config = result.get("config") or {}
-    if not isinstance(config, dict):
-        config = {}
-    round_mode = str(config.get("round_mode") or "full").strip().lower()
-    if round_mode not in {"full", "single", "multi"}:
-        round_mode = "full"
+    download_rounds = [item for item in rounds if isinstance(item, dict) and item.get("direction") == "download"]
+    upload_rounds = [item for item in rounds if isinstance(item, dict) and item.get("direction") == "upload"]
+    best_download = max(download_rounds, key=lambda item: float(item.get("mbps") or 0), default=None)
+    best_upload = max(upload_rounds, key=lambda item: float(item.get("mbps") or 0), default=None)
 
     endpoint = result.get("selected_endpoint") or {}
     if not isinstance(endpoint, dict):
         endpoint = {}
+    latency = result.get("idle_latency") or {}
+    if not isinstance(latency, dict):
+        latency = {}
+
     return {
-        "mode": round_mode,
-        "modeLabel": {"single": "单线程", "multi": "多线程"}.get(round_mode, "完整"),
         "degraded": bool(result.get("degraded")),
         "exitCode": result.get("exit_code"),
         "durationMs": result.get("duration_ms"),
@@ -194,17 +144,19 @@ def summarize_result(result: dict[str, object], command: list[str], source: dict
             "source": endpoint.get("source"),
             "status": endpoint.get("status"),
         },
-        "latency": summarize_latency(result.get("idle_latency")),
-        "download": summarize_round(pick_round(rounds, "download", round_mode)),
-        "upload": summarize_round(pick_round(rounds, "upload", round_mode)),
-        "warnings": result.get("warnings") or [],
-        "config": {
-            "max": config.get("max"),
-            "threads": config.get("threads"),
-            "latencyCount": config.get("latency_count"),
-            "timeoutSeconds": config.get("timeout_seconds"),
-            "roundMode": round_mode,
+        "latency": {
+            "status": latency.get("status"),
+            "samples": latency.get("samples"),
+            "medianMs": latency.get("median_ms"),
+            "avgMs": latency.get("avg_ms"),
+            "jitterMs": latency.get("jitter_ms"),
+            "minMs": latency.get("min_ms"),
+            "maxMs": latency.get("max_ms"),
         },
+        "download": summarize_round(best_download),
+        "upload": summarize_round(best_upload),
+        "warnings": result.get("warnings") or [],
+        "config": result.get("config") or {},
     }
 
 
