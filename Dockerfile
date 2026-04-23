@@ -19,7 +19,7 @@ LABEL org.opencontainers.image.source="https://github.com/zhizhishu/echo-nat-spe
 LABEL org.opencontainers.image.description="Echo NAT Speed bundles NAT detection and domestic speed testing in a single container image."
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 

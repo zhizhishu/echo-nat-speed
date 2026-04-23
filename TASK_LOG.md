@@ -122,3 +122,14 @@
   - 验证：`python3 -m py_compile Web/serve.py`
   - 验证：本地启动 `ECHO_NAT_PORT=8098 python3 Web/serve.py`，页面点击 `浏览器单线程测速` 后产生 `/api/browser-speed/ping`、`/api/browser-speed/download`、`/api/browser-speed/upload` 请求。
   - 验证：同一页面点击 `Apple 单线程诊断` 后产生 `POST /api/domestic-speed` 请求，结果卡显示 Apple CDN 节点 `113.96.136.165`。
+- [x] ~~**目标:** 将网页测速改为“浏览器发起 + Apple CDN 节点中继”链路，并移除误导性的双轨测速入口~~ (创建于: 2026-04-23 16:22:03 | **完成于: 2026-04-23 16:43:06**)
+  - 更新：`Web/serve.py` 新增 `/api/browser-speed/session`，按 `iNetSpeed-CLI` 的 Apple DoH 选点规则创建测速会话，并将 `/api/browser-speed/ping`、`/api/browser-speed/download`、`/api/browser-speed/upload` 改为通过 `curl --http2 --resolve` 中继到选中的 Apple CDN 节点。
+  - 更新：`Web/app.js` 删除前台“浏览器真实测速 / Apple 服务器诊断”双轨，改为单一的 Apple 单线程 / 多线程浏览器测速流程，并在页面中展示选中的 Apple 节点 IP 与选点 RTT。
+  - 更新：`Web/index.html` 只保留 `Apple 单线程测速`、`Apple 多线程测速` 两个测速按钮，简化副标题、默认文案与提示信息。
+  - 更新：`Dockerfile` 运行时安装 `curl`，保证容器内 Apple 中继测速可用。
+  - 更新：`README.md` 与 `README.zh-CN.md`，同步说明新的“浏览器发起 + Apple 中继”测速语义，以及 `/api/domestic-speed` 退为后台可选诊断接口。
+  - 验证：`node --check Web/app.js`
+  - 验证：`python3 -m py_compile Web/serve.py`
+  - 验证：本地启动 `python3 Web/serve.py` 后，`POST /api/browser-speed/session` 成功返回 Apple 节点 `113.96.136.165` / `113.96.136.166` 等真实 IP。
+  - 验证：`GET /api/browser-speed/ping`、`GET /api/browser-speed/download`、`POST /api/browser-speed/upload` 均成功经过会话节点完成回归。
+  - 验证：Chrome 页面打开 `http://127.0.0.1:8080`，点击 `Apple 单线程测速` 后，页面实测显示 Apple 节点 `113.96.136.167`，请求链包含 `session -> ping -> download -> upload` 全流程。

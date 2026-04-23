@@ -13,10 +13,10 @@ const STUN_SERVERS = [
 ];
 
 const BROWSER_SPEED_BASE = '/api/browser-speed';
+const BROWSER_SPEED_SESSION_API = `${BROWSER_SPEED_BASE}/session`;
 const BROWSER_SPEED_PING_API = `${BROWSER_SPEED_BASE}/ping`;
 const BROWSER_SPEED_DOWNLOAD_API = `${BROWSER_SPEED_BASE}/download`;
 const BROWSER_SPEED_UPLOAD_API = `${BROWSER_SPEED_BASE}/upload`;
-const DOMESTIC_SPEED_API = '/api/domestic-speed';
 const LATENCY_SAMPLE_COUNT = 7;
 const DOWNLOAD_SINGLE_BYTES = 24 * 1024 * 1024;
 const DOWNLOAD_MULTI_STREAM_BYTES = 16 * 1024 * 1024;
@@ -29,95 +29,52 @@ const LOAD_LATENCY_INTERVAL_MS = 180;
 const SPEED_STAGE_PAUSE_MS = 180;
 
 const uploadPayloadCache = new Map();
+const speedRuntime = {
+  sessionId: '',
+  endpoint: 'mensura.cdn-apple.com',
+  endpointDetail: '等待选点',
+};
+
 const SPEED_SOURCE_META = {
   browser: {
-    cardTag: '浏览器真实测速',
-    logLabel: '浏览器测速',
-    idleDetail: '测速前空载基线',
-    downloadLatencyDetail: '当前测速模式的下载阶段同步采样',
-    uploadLatencyDetail: '当前测速模式的上传阶段同步采样',
-    jitterDetail: '空载延迟波动',
-    endpointLabel: () => window.location.host || window.location.hostname || '当前部署节点',
-    endpointDetail: '用户浏览器 → 当前部署节点',
-    waitingSummary: '用户浏览器真实测速',
-    waitingHint: '请选择浏览器单线程或多线程测速。',
-    preparingHint: '测速流量由当前用户浏览器发起。',
-    successHint: '结果来自当前用户浏览器真实流量。',
-    failHintSource: '浏览器测速',
-  },
-  apple: {
-    cardTag: 'Apple CDN 服务器诊断',
+    cardTag: 'Apple CDN 浏览器测速',
     logLabel: 'Apple CDN',
-    idleDetail: 'inetspeed 空载基线',
-    downloadLatencyDetail: 'Apple 下载阶段同步采样',
-    uploadLatencyDetail: 'Apple 上传阶段同步采样',
+    idleDetail: 'Apple 空载基线',
+    downloadLatencyDetail: 'Apple 下载负载采样',
+    uploadLatencyDetail: 'Apple 上传负载采样',
     jitterDetail: 'Apple 空载延迟波动',
-    endpointLabel: () => 'mensura.cdn-apple.com',
-    endpointDetail: '内置 inetspeed 自动选点',
-    waitingSummary: 'Apple CDN 服务器诊断',
-    waitingHint: '请选择 Apple 单线程或多线程诊断。',
-    preparingHint: '正在解析并选择 Apple CDN 节点。',
-    successHint: '结果来自内置 inetspeed Apple CDN 诊断。',
+    endpointLabel: () => speedRuntime.endpoint || 'mensura.cdn-apple.com',
+    endpointDetail: () => speedRuntime.endpointDetail || '等待选点',
+    waitingSummary: 'Apple CDN 浏览器测速',
+    waitingHint: '请选择 Apple 单线程或多线程测速。',
+    preparingHint: '正在按 iNetSpeed 规则选择 Apple CDN 节点。',
+    successHint: '测速流量由当前浏览器发起，并经选中的 Apple CDN 节点中继。',
     failHintSource: 'Apple CDN',
   },
 };
 
 const BROWSER_SPEED_MODES = {
   single: {
-    label: '浏览器单线程',
-    buttonId: 'browserSingleSpeedBtn',
-    buttonText: '浏览器单线程测速',
-    downloadMetricId: 'speedDownloadSingle',
-    uploadMetricId: 'speedUploadSingle',
-    concurrency: 1,
-    downloadBytes: DOWNLOAD_SINGLE_BYTES,
-    uploadBytes: UPLOAD_SINGLE_BYTES,
-  },
-  multi: {
-    label: '浏览器多线程',
-    buttonId: 'browserMultiSpeedBtn',
-    buttonText: '浏览器多线程测速',
-    downloadMetricId: 'speedDownloadMulti',
-    uploadMetricId: 'speedUploadMulti',
-    concurrency: DOWNLOAD_MULTI_CONCURRENCY,
-    downloadBytes: DOWNLOAD_MULTI_STREAM_BYTES,
-    uploadBytes: UPLOAD_MULTI_STREAM_BYTES,
-  },
-};
-
-const APPLE_SPEED_MODES = {
-  single: {
     label: 'Apple 单线程',
-    buttonId: 'appleSingleSpeedBtn',
-    buttonText: 'Apple 单线程诊断',
+    buttonId: 'browserSingleSpeedBtn',
+    buttonText: 'Apple 单线程测速',
     downloadMetricId: 'speedDownloadSingle',
     uploadMetricId: 'speedUploadSingle',
     concurrency: 1,
     downloadBytes: DOWNLOAD_SINGLE_BYTES,
     uploadBytes: UPLOAD_SINGLE_BYTES,
-    max: '64M',
-    timeout: 10,
-    latencyCount: 8,
   },
   multi: {
     label: 'Apple 多线程',
-    buttonId: 'appleMultiSpeedBtn',
-    buttonText: 'Apple 多线程诊断',
+    buttonId: 'browserMultiSpeedBtn',
+    buttonText: 'Apple 多线程测速',
     downloadMetricId: 'speedDownloadMulti',
     uploadMetricId: 'speedUploadMulti',
     concurrency: DOWNLOAD_MULTI_CONCURRENCY,
     downloadBytes: DOWNLOAD_MULTI_STREAM_BYTES,
     uploadBytes: UPLOAD_MULTI_STREAM_BYTES,
-    max: '64M',
-    timeout: 10,
-    latencyCount: 8,
   },
 };
-
-const ALL_SPEED_BUTTON_IDS = [
-  ...Object.values(BROWSER_SPEED_MODES).map((config) => config.buttonId),
-  ...Object.values(APPLE_SPEED_MODES).map((config) => config.buttonId),
-];
 
 const logState = {
   nat: 0,
@@ -388,13 +345,22 @@ function renderSpeedEndpoint(value = 'mensura.cdn-apple.com', detail = 'Apple CD
   updateSpeedMetric('speedEndpoint', value, detail);
 }
 
-function getSpeedModeConfig(source = 'browser', mode = 'multi') {
-  const configs = source === 'apple' ? APPLE_SPEED_MODES : BROWSER_SPEED_MODES;
-  return configs[mode] || configs.multi;
+function setSpeedRuntimeEndpoint(endpoint = 'mensura.cdn-apple.com', detail = '等待选点', sessionId = '') {
+  speedRuntime.endpoint = endpoint;
+  speedRuntime.endpointDetail = detail;
+  speedRuntime.sessionId = sessionId;
+}
+
+function resetSpeedRuntime() {
+  setSpeedRuntimeEndpoint('mensura.cdn-apple.com', '等待选点', '');
+}
+
+function getSpeedModeConfig(mode = 'multi') {
+  return BROWSER_SPEED_MODES[mode] || BROWSER_SPEED_MODES.multi;
 }
 
 function setSpeedButtonsState(runningButtonId = null) {
-  [...Object.values(BROWSER_SPEED_MODES), ...Object.values(APPLE_SPEED_MODES)].forEach((config) => {
+  Object.values(BROWSER_SPEED_MODES).forEach((config) => {
     const button = document.getElementById(config.buttonId);
     if (!button) {
       return;
@@ -441,10 +407,11 @@ function setModeMetricVisibility(mode = null) {
   setSpeedMetricVisible('speedUploadMulti', !mode || isMulti);
 }
 
-function resetBrowserSpeedCard(source = 'browser', mode = null) {
-  const sourceMeta = SPEED_SOURCE_META[source];
-  const modeConfig = mode ? getSpeedModeConfig(source, mode) : null;
-  setSpeedCardTag(source);
+function resetBrowserSpeedCard(mode = null) {
+  const sourceMeta = SPEED_SOURCE_META.browser;
+  const modeConfig = mode ? getSpeedModeConfig(mode) : null;
+  resetSpeedRuntime();
+  setSpeedCardTag('browser');
   setSpeedCardState({
     showSpinner: false,
     borderColor: 'rgba(0, 122, 255, 0.16)',
@@ -461,22 +428,22 @@ function resetBrowserSpeedCard(source = 'browser', mode = null) {
   updateSpeedMetric('speedLatencyDownload', '-', sourceMeta.downloadLatencyDetail);
   updateSpeedMetric('speedLatencyUpload', '-', sourceMeta.uploadLatencyDetail);
   updateSpeedMetric('speedJitter', '-', sourceMeta.jitterDetail);
-  renderSpeedEndpoint(sourceMeta.endpointLabel(), sourceMeta.endpointDetail);
+  renderSpeedEndpoint(sourceMeta.endpointLabel(), sourceMeta.endpointDetail());
   setSpeedHint(modeConfig ? `等待开始${modeConfig.label}。` : sourceMeta.waitingHint);
 }
 
-function setBrowserSpeedPreparing(source, mode) {
-  const sourceMeta = SPEED_SOURCE_META[source];
-  const modeConfig = getSpeedModeConfig(source, mode);
-  setSpeedCardTag(source);
+function setBrowserSpeedPreparing(mode) {
+  const sourceMeta = SPEED_SOURCE_META.browser;
+  const modeConfig = getSpeedModeConfig(mode);
+  setSpeedCardTag('browser');
   setSpeedCardState({
     showSpinner: true,
     borderColor: 'var(--accent-blue)',
     status: `${modeConfig.label}准备中...`,
     mainValue: '-- Mbps',
-    summary: source === 'apple' ? '正在调用内置 inetspeed' : '正在预热浏览器测速链路',
+    summary: '正在建立 Apple CDN 测速链路',
   });
-  renderSpeedEndpoint(sourceMeta.endpointLabel(), sourceMeta.endpointDetail);
+  renderSpeedEndpoint(sourceMeta.endpointLabel(), sourceMeta.endpointDetail());
   setSpeedHint(sourceMeta.preparingHint);
 }
 
@@ -514,13 +481,44 @@ function renderLatencyProgress(samples) {
       ? `最小 ${formatLatencyMs(latencyStats.minMs)} · 最大 ${formatLatencyMs(latencyStats.maxMs)}`
       : '等待更多样本'
   );
-  renderSpeedEndpoint(SPEED_SOURCE_META.browser.endpointLabel(), SPEED_SOURCE_META.browser.endpointDetail);
+  renderSpeedEndpoint(SPEED_SOURCE_META.browser.endpointLabel(), SPEED_SOURCE_META.browser.endpointDetail());
   setSpeedHint(SPEED_SOURCE_META.browser.preparingHint);
 }
 
-async function pingBrowserSpeed(sampleKey = 'ping') {
+function formatEndpointDetail(endpoint) {
+  const parts = ['Apple CDN', 'iNetSpeed 选点'];
+  if (endpoint?.source) {
+    parts.push(endpoint.source);
+  }
+  if (endpoint?.rttMs != null) {
+    parts.push(`选点 RTT ${formatLatencyMs(endpoint.rttMs)}`);
+  }
+  return parts.join(' · ');
+}
+
+async function createBrowserSpeedSession() {
+  const response = await fetch(BROWSER_SPEED_SESSION_API, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+    },
+    body: '{}',
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data || data.ok === false || !data.sessionId) {
+    throw new Error(data?.error || `Apple 节点选点失败 (${response.status})`);
+  }
+  const endpoint = data.endpoint || {};
+  setSpeedRuntimeEndpoint(endpoint.ip || 'mensura.cdn-apple.com', formatEndpointDetail(endpoint), data.sessionId);
+  return data;
+}
+
+async function pingBrowserSpeed(sampleKey = 'ping', sessionId = speedRuntime.sessionId) {
+  const sessionParam = encodeURIComponent(sessionId || '');
   const startedAt = performance.now();
-  const response = await fetch(`${BROWSER_SPEED_PING_API}?r=${Date.now()}-${sampleKey}`, {
+  const response = await fetch(`${BROWSER_SPEED_PING_API}?session=${sessionParam}&r=${Date.now()}-${sampleKey}`, {
     cache: 'no-store',
     headers: { 'Cache-Control': 'no-store' },
   });
@@ -531,10 +529,10 @@ async function pingBrowserSpeed(sampleKey = 'ping') {
   return performance.now() - startedAt;
 }
 
-async function measureBrowserLatency(sampleCount = LATENCY_SAMPLE_COUNT) {
+async function measureBrowserLatency(sampleCount = LATENCY_SAMPLE_COUNT, sessionId = speedRuntime.sessionId) {
   const samples = [];
   for (let index = 0; index < sampleCount; index += 1) {
-    const durationMs = await pingBrowserSpeed(`idle-${index}`);
+    const durationMs = await pingBrowserSpeed(`idle-${index}`, sessionId);
     samples.push(durationMs);
     renderLatencyProgress(samples);
     addLog(SPEED_SOURCE_META.browser.logLabel, `延迟样本 ${index + 1}: ${formatLatencyMs(durationMs)}`, 'info', 'speed');
@@ -611,8 +609,9 @@ function createTransferTracker(totalBytes, onProgress) {
   };
 }
 
-async function readDownloadStream(totalBytes, streamIndex, onChunk) {
-  const response = await fetch(`${BROWSER_SPEED_DOWNLOAD_API}?bytes=${totalBytes}&r=${Date.now()}-${streamIndex}`, {
+async function readDownloadStream(totalBytes, streamIndex, sessionId, onChunk) {
+  const sessionParam = encodeURIComponent(sessionId || '');
+  const response = await fetch(`${BROWSER_SPEED_DOWNLOAD_API}?session=${sessionParam}&bytes=${totalBytes}&r=${Date.now()}-${streamIndex}`, {
     cache: 'no-store',
     headers: { 'Cache-Control': 'no-store' },
   });
@@ -639,11 +638,11 @@ async function readDownloadStream(totalBytes, streamIndex, onChunk) {
   return transferredBytes;
 }
 
-async function runDownloadPhase({ concurrency, bytesPerStream, onProgress }) {
+async function runDownloadPhase({ concurrency, bytesPerStream, sessionId, onProgress }) {
   const tracker = createTransferTracker(concurrency * bytesPerStream, onProgress);
   const received = await Promise.all(
     Array.from({ length: concurrency }, (_, index) =>
-      readDownloadStream(bytesPerStream, index, (chunkBytes) => {
+      readDownloadStream(bytesPerStream, index, sessionId, (chunkBytes) => {
         tracker.addBytes(chunkBytes);
       })
     )
@@ -664,12 +663,12 @@ function getUploadPayload(totalBytes) {
   return uploadPayloadCache.get(totalBytes);
 }
 
-function uploadStream(totalBytes, streamIndex, onProgress) {
+function uploadStream(totalBytes, streamIndex, sessionId, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     let uploadedBytes = 0;
 
-    xhr.open('POST', `${BROWSER_SPEED_UPLOAD_API}?r=${Date.now()}-${streamIndex}`, true);
+    xhr.open('POST', `${BROWSER_SPEED_UPLOAD_API}?session=${encodeURIComponent(sessionId || '')}&r=${Date.now()}-${streamIndex}`, true);
     xhr.responseType = 'json';
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
 
@@ -705,11 +704,11 @@ function uploadStream(totalBytes, streamIndex, onProgress) {
   });
 }
 
-async function runUploadPhase({ concurrency, bytesPerStream, onProgress }) {
+async function runUploadPhase({ concurrency, bytesPerStream, sessionId, onProgress }) {
   const tracker = createTransferTracker(concurrency * bytesPerStream, onProgress);
   const received = await Promise.all(
     Array.from({ length: concurrency }, (_, index) =>
-      uploadStream(bytesPerStream, index, (chunkBytes) => {
+      uploadStream(bytesPerStream, index, sessionId, (chunkBytes) => {
         tracker.addBytes(chunkBytes);
       })
     )
@@ -723,13 +722,13 @@ async function runUploadPhase({ concurrency, bytesPerStream, onProgress }) {
   };
 }
 
-function createLoadLatencyProbe(onSample) {
+function createLoadLatencyProbe(sessionId, onSample) {
   let stopped = false;
   const runner = (async () => {
     const samples = [];
     while (!stopped) {
       try {
-        const durationMs = await pingBrowserSpeed(`load-${samples.length}`);
+        const durationMs = await pingBrowserSpeed(`load-${samples.length}`, sessionId);
         samples.push(durationMs);
         onSample?.(summarizeLatencySamples(samples));
       } catch (error) {
@@ -768,70 +767,6 @@ function renderLoadLatencyMetric(metricId, latencyStats, baselineLatency, detail
   );
 }
 
-function normalizeInetspeedLatency(rawLatency) {
-  const latency = rawLatency && typeof rawLatency === 'object' ? rawLatency : {};
-  const sampleCount = Number(latency.samples || 0);
-  return {
-    samples: Array.from({ length: Number.isFinite(sampleCount) ? sampleCount : 0 }, () => 0),
-    medianMs: latency.medianMs ?? latency.median_ms ?? null,
-    avgMs: latency.avgMs ?? latency.avg_ms ?? null,
-    jitterMs: latency.jitterMs ?? latency.jitter_ms ?? null,
-    minMs: latency.minMs ?? latency.min_ms ?? null,
-    maxMs: latency.maxMs ?? latency.max_ms ?? null,
-  };
-}
-
-function normalizeInetspeedRound(rawRound, concurrency) {
-  const round = rawRound && typeof rawRound === 'object' ? rawRound : {};
-  return {
-    direction: round.name || '',
-    concurrency,
-    totalBytes: round.totalBytes ?? round.total_bytes ?? 0,
-    durationMs: round.durationMs ?? round.duration_ms ?? null,
-    mbps: typeof round.mbps === 'number' ? round.mbps : null,
-    peakMbps: typeof round.mbps === 'number' ? round.mbps : null,
-    loadedLatency: normalizeInetspeedLatency(round.loadedLatency ?? round.loaded_latency),
-    status: round.status || 'unknown',
-  };
-}
-
-function endpointDetail(endpoint, commandSource) {
-  const parts = ['Apple CDN', 'inetspeed 自动选点'];
-  if (endpoint?.source) {
-    parts.push(endpoint.source);
-  }
-  if (endpoint?.rttMs != null) {
-    parts.push(`选点 RTT ${formatLatencyMs(endpoint.rttMs)}`);
-  }
-  if (commandSource) {
-    parts.push('内置组件');
-  }
-  return parts.join(' · ');
-}
-
-async function runInetspeedTest(modeConfig) {
-  const response = await fetch(DOMESTIC_SPEED_API, {
-    method: 'POST',
-    cache: 'no-store',
-    headers: {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-store',
-    },
-    body: JSON.stringify({
-      timeout: modeConfig.timeout,
-      max: modeConfig.max,
-      latency_count: modeConfig.latencyCount,
-      threads: modeConfig.concurrency,
-      no_metadata: true,
-    }),
-  });
-  const data = await response.json().catch(() => null);
-  if (!response.ok || !data || data.ok === false) {
-    throw new Error(data?.error || `Apple CDN 测速失败 (${response.status})`);
-  }
-  return data;
-}
-
 function getThroughputMetricId(direction, concurrency) {
   if (direction === 'download') {
     return concurrency > 1 ? 'speedDownloadMulti' : 'speedDownloadSingle';
@@ -867,20 +802,18 @@ function renderTransferStage({ direction, concurrency, progress, baselineLatency
   if (!isDownload && isMulti) {
     renderLoadLatencyMetric('speedLatencyUpload', loadedLatency, baselineLatency, '多线程上传 · ');
   }
-  renderSpeedEndpoint(SPEED_SOURCE_META.browser.endpointLabel(), SPEED_SOURCE_META.browser.endpointDetail);
+  renderSpeedEndpoint(SPEED_SOURCE_META.browser.endpointLabel(), SPEED_SOURCE_META.browser.endpointDetail());
   setSpeedHint(
-    isDownload
-      ? `浏览器实时下载吞吐：${phaseName}`
-      : `浏览器实时上传吞吐：${phaseName}`,
+    isDownload ? `${phaseName}进行中` : `${phaseName}进行中`,
     isDownload ? 'info' : 'warn'
   );
 }
 
-async function runMeasuredTransfer({ direction, concurrency, bytesPerStream, baselineLatency, captureLoadLatency = false }) {
+async function runMeasuredTransfer({ direction, concurrency, bytesPerStream, sessionId, baselineLatency, captureLoadLatency = false }) {
   let latestLoadLatency = null;
   let probeStopped = false;
   const latencyProbe = captureLoadLatency
-    ? createLoadLatencyProbe((latencyStats) => {
+    ? createLoadLatencyProbe(sessionId, (latencyStats) => {
       latestLoadLatency = latencyStats;
     })
     : null;
@@ -899,6 +832,7 @@ async function runMeasuredTransfer({ direction, concurrency, bytesPerStream, bas
     const result = await runner({
       concurrency,
       bytesPerStream,
+      sessionId,
       onProgress(progress) {
         renderTransferStage({
           direction,
@@ -943,8 +877,9 @@ function renderBrowserSpeedResult({
   upload,
   downloadLoadedLatency,
   uploadLoadedLatency,
+  endpoint,
 }) {
-  const modeConfig = getSpeedModeConfig('browser', mode);
+  const modeConfig = getSpeedModeConfig(mode);
   setSpeedCardTag('browser');
   setModeMetricVisibility(mode);
   setSpeedCardState({
@@ -969,10 +904,10 @@ function renderBrowserSpeedResult({
   renderLatencyBaseline(idleLatency);
   renderLoadLatencyMetric('speedLatencyDownload', downloadLoadedLatency, idleLatency, `${modeConfig.label}下载 · `);
   renderLoadLatencyMetric('speedLatencyUpload', uploadLoadedLatency, idleLatency, `${modeConfig.label}上传 · `);
-  renderSpeedEndpoint(SPEED_SOURCE_META.browser.endpointLabel(), SPEED_SOURCE_META.browser.endpointDetail);
+  renderSpeedEndpoint(endpoint?.ip || SPEED_SOURCE_META.browser.endpointLabel(), formatEndpointDetail(endpoint));
   setSpeedHint(SPEED_SOURCE_META.browser.successHint, 'success');
 
-  addLog(SPEED_SOURCE_META.browser.logLabel, `目标节点 ${SPEED_SOURCE_META.browser.endpointLabel()}`, 'info', 'speed');
+  addLog(SPEED_SOURCE_META.browser.logLabel, `选中节点 ${endpoint?.ip || SPEED_SOURCE_META.browser.endpointLabel()}`, 'info', 'speed');
   addLog(
     SPEED_SOURCE_META.browser.logLabel,
     `${modeConfig.label}结果 下载 ${formatMbps(download.mbps)} / 上传 ${formatMbps(upload.mbps)}`,
@@ -982,68 +917,16 @@ function renderBrowserSpeedResult({
   addLog(SPEED_SOURCE_META.browser.logLabel, `${modeConfig.label}完成 ✓`, 'result', 'speed');
 }
 
-function renderAppleSpeedResult({
-  mode,
-  idleLatency,
-  download,
-  upload,
-  downloadLoadedLatency,
-  uploadLoadedLatency,
-  endpoint,
-  commandSource,
-  degraded = false,
-}) {
-  const modeConfig = getSpeedModeConfig('apple', mode);
-  setSpeedCardTag('apple');
-  setModeMetricVisibility(mode);
-  setSpeedCardState({
-    showSpinner: false,
-    borderColor: degraded ? 'var(--accent-yellow)' : 'var(--accent-green)',
-    status: degraded ? '部分完成' : '已完成',
-    mainValue: '',
-    mainHtml: formatDualSpeedHtml(download?.mbps, upload?.mbps),
-    summary: `${modeConfig.label}完成`,
-  });
-
-  updateSpeedMetric(
-    modeConfig.downloadMetricId,
-    formatMbps(download?.mbps),
-    `${modeConfig.concurrency} 线程 · ${formatBytesMiB(download?.totalBytes)} · 峰值 ${formatMbps(download?.peakMbps)}`
-  );
-  updateSpeedMetric(
-    modeConfig.uploadMetricId,
-    formatMbps(upload?.mbps),
-    `${modeConfig.concurrency} 线程 · ${formatBytesMiB(upload?.totalBytes)} · 峰值 ${formatMbps(upload?.peakMbps)}`
-  );
-  renderLatencyBaseline(idleLatency);
-  renderLoadLatencyMetric('speedLatencyDownload', downloadLoadedLatency, idleLatency, `${modeConfig.label}下载 · `);
-  renderLoadLatencyMetric('speedLatencyUpload', uploadLoadedLatency, idleLatency, `${modeConfig.label}上传 · `);
-  renderSpeedEndpoint(endpoint?.ip || 'mensura.cdn-apple.com', endpointDetail(endpoint, commandSource));
-  setSpeedHint(
-    degraded ? '测速完成，但 inetspeed 报告部分阶段降级。' : '结果来自内置 inetspeed Apple CDN 诊断。',
-    degraded ? 'warn' : 'success'
-  );
-
-  addLog('Apple CDN', `节点 ${endpoint?.ip || '自动选点'}`, 'info', 'speed');
-  addLog(
-    'Apple CDN',
-    `${modeConfig.label}结果 下载 ${formatMbps(download.mbps)} / 上传 ${formatMbps(upload.mbps)}`,
-    'result',
-    'speed'
-  );
-  addLog('Apple CDN', `${modeConfig.label}完成 ✓`, 'result', 'speed');
-}
-
-function renderSpeedError(source, message) {
+function renderSpeedError(message) {
   document.getElementById('speedSpinner').style.display = 'none';
   document.getElementById('speedCard').style.borderColor = 'var(--accent-red)';
-  setSpeedCardTag(source);
+  setSpeedCardTag('browser');
   setText('speedStatus', '测速失败');
   setSpeedMainValue('-- Mbps');
   setText('speedSummary', '无法完成测速');
-  renderSpeedEndpoint(SPEED_SOURCE_META[source].endpointLabel(), SPEED_SOURCE_META[source].endpointDetail);
+  renderSpeedEndpoint(SPEED_SOURCE_META.browser.endpointLabel(), SPEED_SOURCE_META.browser.endpointDetail());
   setSpeedHint(message, 'fail');
-  addLog(SPEED_SOURCE_META[source].failHintSource, message, 'fail', 'speed');
+  addLog(SPEED_SOURCE_META.browser.failHintSource, message, 'fail', 'speed');
 }
 
 function probeSTUN(stunUrl, serverName) {
@@ -1246,21 +1129,24 @@ async function startDetection() {
 }
 
 async function startBrowserSpeedTest(mode = 'multi') {
-  const modeConfig = getSpeedModeConfig('browser', mode);
+  const modeConfig = getSpeedModeConfig(mode);
   setSpeedButtonsState(modeConfig.buttonId);
 
   hideSection('resultSection');
   showSection('speedResultSection');
   resetLogs('speed');
-  resetBrowserSpeedCard('browser', mode);
-  setBrowserSpeedPreparing('browser', mode);
+  resetBrowserSpeedCard(mode);
+  setBrowserSpeedPreparing(mode);
   addLog(SPEED_SOURCE_META.browser.logLabel, `开始${modeConfig.label}...`, 'info', 'speed');
 
   try {
-    await pingBrowserSpeed('warmup');
-    addLog(SPEED_SOURCE_META.browser.logLabel, '测速端点预热完成', 'info', 'speed');
+    const session = await createBrowserSpeedSession();
+    addLog(SPEED_SOURCE_META.browser.logLabel, `选中节点 ${session.endpoint?.ip || '自动选点'}`, 'info', 'speed');
 
-    const idleLatency = await measureBrowserLatency();
+    await pingBrowserSpeed('warmup', session.sessionId);
+    addLog(SPEED_SOURCE_META.browser.logLabel, '测速链路预热完成', 'info', 'speed');
+
+    const idleLatency = await measureBrowserLatency(LATENCY_SAMPLE_COUNT, session.sessionId);
     addLog(
       SPEED_SOURCE_META.browser.logLabel,
       `空载延迟 ${formatLatencyMs(idleLatency.medianMs)} · 抖动 ${formatLatencyMs(idleLatency.jitterMs)}`,
@@ -1273,6 +1159,7 @@ async function startBrowserSpeedTest(mode = 'multi') {
       direction: 'download',
       concurrency: modeConfig.concurrency,
       bytesPerStream: modeConfig.downloadBytes,
+      sessionId: session.sessionId,
       baselineLatency: idleLatency,
       captureLoadLatency: true,
     });
@@ -1286,6 +1173,7 @@ async function startBrowserSpeedTest(mode = 'multi') {
       direction: 'upload',
       concurrency: modeConfig.concurrency,
       bytesPerStream: modeConfig.uploadBytes,
+      sessionId: session.sessionId,
       baselineLatency: idleLatency,
       captureLoadLatency: true,
     });
@@ -1301,55 +1189,13 @@ async function startBrowserSpeedTest(mode = 'multi') {
       upload,
       downloadLoadedLatency: download.loadedLatency,
       uploadLoadedLatency: upload.loadedLatency,
+      endpoint: session.endpoint,
     });
   } catch (error) {
-    renderSpeedError('browser', error instanceof Error ? error.message : '测速失败');
+    renderSpeedError(error instanceof Error ? error.message : '测速失败');
   } finally {
     document.getElementById('speedSpinner').style.display = 'none';
     setSpeedButtonsState(null);
   }
 }
-
-async function startAppleSpeedTest(mode = 'multi') {
-  const modeConfig = getSpeedModeConfig('apple', mode);
-  setSpeedButtonsState(modeConfig.buttonId);
-
-  hideSection('resultSection');
-  showSection('speedResultSection');
-  resetLogs('speed');
-  resetBrowserSpeedCard('apple', mode);
-  setBrowserSpeedPreparing('apple', mode);
-  addLog('Apple CDN', `开始${modeConfig.label}...`, 'info', 'speed');
-
-  try {
-    const data = await runInetspeedTest(modeConfig);
-    const summary = data.summary || {};
-    const endpoint = summary.endpoint || {};
-    const idleLatency = normalizeInetspeedLatency(summary.latency);
-    const download = normalizeInetspeedRound(summary.download, modeConfig.concurrency);
-    const upload = normalizeInetspeedRound(summary.upload, modeConfig.concurrency);
-
-    addLog('Apple CDN', `选中节点 ${endpoint.ip || '自动选点'}`, 'info', 'speed');
-    addLog('Apple CDN', `${modeConfig.label}下载 ${formatMbps(download.mbps)}`, 'result', 'speed');
-    addLog('Apple CDN', `${modeConfig.label}上传 ${formatMbps(upload.mbps)}`, 'result', 'speed');
-
-    renderAppleSpeedResult({
-      mode,
-      idleLatency,
-      download,
-      upload,
-      downloadLoadedLatency: download.loadedLatency,
-      uploadLoadedLatency: upload.loadedLatency,
-      endpoint,
-      commandSource: summary.commandSource,
-      degraded: Boolean(summary.degraded),
-    });
-  } catch (error) {
-    renderSpeedError('apple', error instanceof Error ? error.message : '测速失败');
-  } finally {
-    document.getElementById('speedSpinner').style.display = 'none';
-    setSpeedButtonsState(null);
-  }
-}
-
-resetBrowserSpeedCard('browser');
+resetBrowserSpeedCard();

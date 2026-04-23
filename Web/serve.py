@@ -2,16 +2,22 @@
 from __future__ import annotations
 
 import errno
+import ipaddress
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
+import socket
 import sys
+import threading
+import uuid
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from time import perf_counter, sleep, time
+from urllib.request import Request, urlopen
 from urllib.parse import parse_qs, urlparse
 
 
@@ -28,6 +34,22 @@ MAX_BROWSER_UPLOAD_BYTES = 64 * 1024 * 1024
 STREAM_CHUNK = os.urandom(16 * 1024)
 STREAM_BACKPRESSURE_RETRIES = 24
 STREAM_BACKPRESSURE_SLEEP = 0.002
+APPLE_CDN_HOST = "mensura.cdn-apple.com"
+APPLE_CDN_DOWNLOAD_URL = f"https://{APPLE_CDN_HOST}/api/v1/gm/large"
+APPLE_CDN_UPLOAD_URL = f"https://{APPLE_CDN_HOST}/api/v1/gm/slurp"
+APPLE_CDN_LATENCY_URL = f"https://{APPLE_CDN_HOST}/api/v1/gm/small"
+APPLE_CDN_USER_AGENT = "networkQuality/194.80.3 CFNetwork/3860.400.51 Darwin/25.3.0"
+APPLE_DOH_URLS = (
+    ("https://cloudflare-dns.com/dns-query?name={host}&type=A", {"Accept": "application/dns-json"}),
+    ("https://dns.alidns.com/resolve?name={host}&type=A&short=1", {}),
+)
+APPLE_DOH_TIMEOUT = 2.0
+APPLE_PROBE_TIMEOUT = 3.0
+APPLE_TRANSFER_TIMEOUT = 90
+APPLE_SESSION_TTL_SECONDS = 180
+APPLE_SESSION_LOCK = threading.Lock()
+APPLE_SPEED_SESSIONS: dict[str, dict[str, object]] = {}
+IPV4_PATTERN = re.compile(rb"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 
 
 def candidate_repo_paths() -> list[Path]:
@@ -202,6 +224,219 @@ def write_stream_chunk(handler: SimpleHTTPRequestHandler, chunk: bytes) -> bool:
             return False
 
 
+def fetch_url_bytes(url: str, headers: dict[str, str] | None = None, timeout: float = APPLE_DOH_TIMEOUT) -> bytes:
+    request = Request(url, headers={"User-Agent": "Echo NAT Speed", **(headers or {})})
+    with urlopen(request, timeout=timeout) as response:
+        return response.read()
+
+
+def extract_ipv4s_from_body(body: bytes) -> list[str]:
+    ips: list[str] = []
+    seen: set[str] = set()
+
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except Exception:
+        payload = None
+
+    if isinstance(payload, dict):
+        answers = payload.get("Answer")
+        if isinstance(answers, list):
+            for answer in answers:
+                if not isinstance(answer, dict):
+                    continue
+                candidate = str(answer.get("data", "")).strip()
+                try:
+                    if ipaddress.ip_address(candidate).version == 4 and candidate not in seen:
+                        seen.add(candidate)
+                        ips.append(candidate)
+                except ValueError:
+                    continue
+    elif isinstance(payload, list):
+        for item in payload:
+            candidate = str(item).strip()
+            try:
+                if ipaddress.ip_address(candidate).version == 4 and candidate not in seen:
+                    seen.add(candidate)
+                    ips.append(candidate)
+            except ValueError:
+                continue
+
+    for match in IPV4_PATTERN.findall(body):
+        candidate = match.decode("utf-8")
+        try:
+            if ipaddress.ip_address(candidate).version == 4 and candidate not in seen:
+                seen.add(candidate)
+                ips.append(candidate)
+        except ValueError:
+            continue
+
+    return ips
+
+
+def resolve_system_ipv4(host: str) -> str | None:
+    try:
+        addr_info = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        return None
+
+    for family, _, _, _, sockaddr in addr_info:
+        if family == socket.AF_INET:
+            return sockaddr[0]
+    return None
+
+
+def resolve_apple_candidates() -> list[dict[str, object]]:
+    candidates: list[dict[str, object]] = []
+    seen: set[str] = set()
+
+    for template, headers in APPLE_DOH_URLS:
+        try:
+            body = fetch_url_bytes(template.format(host=APPLE_CDN_HOST), headers=headers, timeout=APPLE_DOH_TIMEOUT)
+        except Exception:
+            continue
+
+        for ip in extract_ipv4s_from_body(body):
+            if ip in seen:
+                continue
+            seen.add(ip)
+            candidates.append({"ip": ip, "source": "doh"})
+
+    if candidates:
+        return candidates
+
+    fallback_ip = resolve_system_ipv4(APPLE_CDN_HOST)
+    if fallback_ip:
+        return [{"ip": fallback_ip, "source": "system_dns"}]
+    return []
+
+
+def resolve_curl_binary() -> str:
+    curl_bin = shutil.which("curl")
+    if curl_bin:
+        return curl_bin
+    raise FileNotFoundError("未找到 curl，无法建立 Apple CDN 浏览器测速桥接。")
+
+
+def build_apple_curl_base(endpoint_ip: str, max_time: float) -> list[str]:
+    curl_bin = resolve_curl_binary()
+    return [
+        curl_bin,
+        "--http2",
+        "--resolve",
+        f"{APPLE_CDN_HOST}:443:{endpoint_ip}",
+        "--connect-timeout",
+        "2",
+        "--max-time",
+        str(max_time),
+        "-sS",
+        "-H",
+        f"User-Agent: {APPLE_CDN_USER_AGENT}",
+        "-H",
+        "Accept: */*",
+        "-H",
+        "Accept-Encoding: identity",
+    ]
+
+
+def probe_apple_endpoint(endpoint_ip: str) -> float:
+    completed = subprocess.run(
+        [
+            *build_apple_curl_base(endpoint_ip, APPLE_PROBE_TIMEOUT),
+            "-o",
+            os.devnull,
+            "-w",
+            "%{time_total}",
+            APPLE_CDN_LATENCY_URL,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=int(APPLE_PROBE_TIMEOUT) + 2,
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip() or f"curl exit={completed.returncode}"
+        raise RuntimeError(detail)
+    return float(completed.stdout.strip()) * 1000
+
+
+def choose_apple_endpoint() -> dict[str, object]:
+    candidates = resolve_apple_candidates()
+    if not candidates:
+        raise RuntimeError("无法解析 Apple CDN 可用节点。")
+
+    ranked: list[dict[str, object]] = []
+    for candidate in candidates[:8]:
+        endpoint_ip = str(candidate["ip"])
+        try:
+            ranked.append(
+                {
+                    "ip": endpoint_ip,
+                    "rttMs": round(probe_apple_endpoint(endpoint_ip), 1),
+                    "source": candidate["source"],
+                    "status": "ok",
+                }
+            )
+        except Exception:
+            continue
+
+    if ranked:
+        ranked.sort(key=lambda item: float(item["rttMs"]))
+        return ranked[0]
+
+    degraded = dict(candidates[0])
+    degraded["rttMs"] = None
+    degraded["status"] = "degraded"
+    return degraded
+
+
+def prune_apple_sessions() -> None:
+    expires_before = time() - APPLE_SESSION_TTL_SECONDS
+    expired = [token for token, session in APPLE_SPEED_SESSIONS.items() if float(session.get("updatedAt", 0)) < expires_before]
+    for token in expired:
+        APPLE_SPEED_SESSIONS.pop(token, None)
+
+
+def create_apple_speed_session(endpoint: dict[str, object]) -> tuple[str, dict[str, object]]:
+    session_id = uuid.uuid4().hex
+    session = {
+        "endpointIp": endpoint.get("ip"),
+        "endpointRttMs": endpoint.get("rttMs"),
+        "endpointSource": endpoint.get("source"),
+        "endpointStatus": endpoint.get("status", "ok"),
+        "updatedAt": time(),
+    }
+    with APPLE_SESSION_LOCK:
+        prune_apple_sessions()
+        APPLE_SPEED_SESSIONS[session_id] = session
+    return session_id, session
+
+
+def load_apple_speed_session(session_id: str | None) -> dict[str, object] | None:
+    if not session_id:
+        return None
+    with APPLE_SESSION_LOCK:
+        prune_apple_sessions()
+        session = APPLE_SPEED_SESSIONS.get(session_id)
+        if not session:
+            return None
+        session["updatedAt"] = time()
+        return dict(session)
+
+
+def session_payload(session_id: str, session: dict[str, object]) -> dict[str, object]:
+    return {
+        "sessionId": session_id,
+        "endpoint": {
+            "host": APPLE_CDN_HOST,
+            "ip": session.get("endpointIp"),
+            "rttMs": session.get("endpointRttMs"),
+            "source": session.get("endpointSource"),
+            "status": session.get("endpointStatus"),
+        },
+        "expiresInMs": APPLE_SESSION_TTL_SECONDS * 1000,
+    }
+
+
 def run_domestic_speed(payload: dict[str, object]) -> dict[str, object]:
     base_cmd, cwd, source = resolve_cli_command()
     cmd = [*base_cmd, *build_speedtest_args(payload)]
@@ -264,15 +499,18 @@ class EchoHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def send_binary_headers(self, content_length: int) -> None:
+    def send_binary_headers(self, content_length: int | None = None, extra_headers: dict[str, str] | None = None) -> None:
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "application/octet-stream")
-        self.send_header("Content-Length", str(content_length))
+        if content_length is not None:
+            self.send_header("Content-Length", str(content_length))
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Encoding", "identity")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        for key, value in (extra_headers or {}).items():
+            self.send_header(key, value)
         self.end_headers()
 
     def do_OPTIONS(self) -> None:
@@ -286,12 +524,16 @@ class EchoHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
 
         if parsed.path == "/api/health":
+            curl_ready = shutil.which("curl") is not None
             try:
                 command, cwd, source = resolve_cli_command()
                 self.send_json(
                     {
                         "ok": True,
-                        "browserSpeedReady": True,
+                        "browserSpeedReady": curl_ready,
+                        "browserSpeedMode": "apple-relay",
+                        "appleRelayReady": curl_ready,
+                        "appleRelayHost": APPLE_CDN_HOST,
                         "speedtestReady": True,
                         "bridge": "python",
                         "component": source.get("component"),
@@ -305,7 +547,7 @@ class EchoHandler(SimpleHTTPRequestHandler):
                 self.send_json(
                     {
                         "ok": True,
-                        "browserSpeedReady": True,
+                        "browserSpeedReady": curl_ready,
                         "speedtestReady": False,
                         "bridge": "python",
                         "component": INETSPEED_COMPONENT,
@@ -315,29 +557,109 @@ class EchoHandler(SimpleHTTPRequestHandler):
             return
 
         if parsed.path == "/api/browser-speed/ping":
+            query = parse_qs(parsed.query)
+            session = load_apple_speed_session(query.get("session", [""])[0])
+            if not session:
+                self.send_json({"ok": False, "error": "测速会话不存在或已过期，请重新开始测速。"}, HTTPStatus.BAD_REQUEST)
+                return
+            try:
+                upstream_latency_ms = round(probe_apple_endpoint(str(session.get("endpointIp"))), 1)
+            except FileNotFoundError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
+                return
+            except Exception as exc:
+                self.send_json({"ok": False, "error": f"Apple 延迟探测失败: {exc}"}, HTTPStatus.BAD_GATEWAY)
+                return
+
             self.send_json(
                 {
                     "ok": True,
                     "browserSpeedReady": True,
                     "serverTimeMs": int(time() * 1000),
+                    "upstreamLatencyMs": upstream_latency_ms,
+                    "endpoint": {
+                        "host": APPLE_CDN_HOST,
+                        "ip": session.get("endpointIp"),
+                        "rttMs": session.get("endpointRttMs"),
+                        "source": session.get("endpointSource"),
+                        "status": session.get("endpointStatus"),
+                    },
                 }
             )
             return
 
         if parsed.path == "/api/browser-speed/download":
+            query = parse_qs(parsed.query)
+            session = load_apple_speed_session(query.get("session", [""])[0])
+            if not session:
+                self.send_json({"ok": False, "error": "测速会话不存在或已过期，请重新开始测速。"}, HTTPStatus.BAD_REQUEST)
+                return
             requested_bytes = clamp_int(
-                parse_qs(parsed.query).get("bytes", [str(DEFAULT_BROWSER_DOWNLOAD_BYTES)])[0],
+                query.get("bytes", [str(DEFAULT_BROWSER_DOWNLOAD_BYTES)])[0],
                 default=DEFAULT_BROWSER_DOWNLOAD_BYTES,
                 minimum=MIN_BROWSER_DOWNLOAD_BYTES,
                 maximum=MAX_BROWSER_DOWNLOAD_BYTES,
             )
-            self.send_binary_headers(requested_bytes)
-            remaining = requested_bytes
-            while remaining > 0:
-                chunk_size = min(remaining, len(STREAM_CHUNK))
-                if not write_stream_chunk(self, STREAM_CHUNK[:chunk_size]):
+            cmd = [
+                *build_apple_curl_base(str(session.get("endpointIp")), APPLE_TRANSFER_TIMEOUT),
+                "--no-buffer",
+                "-L",
+                "-o",
+                "-",
+                APPLE_CDN_DOWNLOAD_URL,
+            ]
+            process = None
+            response_started = False
+            try:
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    bufsize=0,
+                )
+                if not process.stdout:
+                    raise RuntimeError("未能打开 Apple 下载输出流。")
+                first_chunk = process.stdout.read(min(64 * 1024, requested_bytes))
+                if not first_chunk:
+                    stderr = process.stderr.read().decode("utf-8", errors="ignore").strip() if process.stderr else ""
+                    process.wait(timeout=5)
+                    raise RuntimeError(stderr or "Apple 下载桥接没有返回数据。")
+
+                self.send_binary_headers(
+                    None,
+                    {
+                        "X-Echo-Apple-Endpoint": str(session.get("endpointIp")),
+                        "X-Echo-Apple-Source": str(session.get("endpointSource")),
+                    },
+                )
+                response_started = True
+                if not write_stream_chunk(self, first_chunk):
                     return
-                remaining -= chunk_size
+
+                remaining = requested_bytes - len(first_chunk)
+                while remaining > 0:
+                    chunk = process.stdout.read(min(64 * 1024, remaining))
+                    if not chunk:
+                        break
+                    if not write_stream_chunk(self, chunk):
+                        return
+                    remaining -= len(chunk)
+            except FileNotFoundError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
+                return
+            except Exception as exc:
+                if response_started or self.wfile.closed:
+                    return
+                self.send_json({"ok": False, "error": f"Apple 下载桥接失败: {exc}"}, HTTPStatus.BAD_GATEWAY)
+                return
+            finally:
+                if process and process.poll() is None:
+                    process.kill()
+                if process:
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
             return
 
         super().do_GET()
@@ -345,7 +667,28 @@ class EchoHandler(SimpleHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
 
+        if parsed.path == "/api/browser-speed/session":
+            try:
+                endpoint = choose_apple_endpoint()
+                session_id, session = create_apple_speed_session(endpoint)
+            except FileNotFoundError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
+                return
+            except Exception as exc:
+                self.send_json({"ok": False, "error": f"Apple 节点选点失败: {exc}"}, HTTPStatus.BAD_GATEWAY)
+                return
+
+            payload = session_payload(session_id, session)
+            payload["ok"] = True
+            self.send_json(payload)
+            return
+
         if parsed.path == "/api/browser-speed/upload":
+            query = parse_qs(parsed.query)
+            session = load_apple_speed_session(query.get("session", [""])[0])
+            if not session:
+                self.send_json({"ok": False, "error": "测速会话不存在或已过期，请重新开始测速。"}, HTTPStatus.BAD_REQUEST)
+                return
             content_length = clamp_int(
                 self.headers.get("Content-Length"),
                 default=0,
@@ -369,17 +712,71 @@ class EchoHandler(SimpleHTTPRequestHandler):
 
             received = 0
             started = perf_counter()
-            while received < content_length:
-                chunk = self.rfile.read(min(64 * 1024, content_length - received))
-                if not chunk:
-                    break
-                received += len(chunk)
+            process = None
+            try:
+                process = subprocess.Popen(
+                    [
+                        *build_apple_curl_base(str(session.get("endpointIp")), APPLE_TRANSFER_TIMEOUT),
+                        "-o",
+                        os.devnull,
+                        "-T",
+                        "-",
+                        APPLE_CDN_UPLOAD_URL,
+                    ],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    bufsize=0,
+                )
+                if not process.stdin:
+                    raise RuntimeError("未能打开 Apple 上传输入流。")
+
+                while received < content_length:
+                    chunk = self.rfile.read(min(64 * 1024, content_length - received))
+                    if not chunk:
+                        break
+                    process.stdin.write(chunk)
+                    process.stdin.flush()
+                    received += len(chunk)
+
+                process.stdin.close()
+                process.stdin = None
+                exit_code = process.wait(timeout=APPLE_TRANSFER_TIMEOUT + 5)
+                stderr = process.stderr.read().decode("utf-8", errors="ignore").strip() if process.stderr else ""
+                if exit_code != 0:
+                    raise RuntimeError(stderr or f"curl exit={exit_code}")
+            except FileNotFoundError as exc:
+                self.send_json({"ok": False, "error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
+                return
+            except BrokenPipeError as exc:
+                stderr = process.stderr.read().decode("utf-8", errors="ignore").strip() if process and process.stderr else ""
+                self.send_json({"ok": False, "error": f"Apple 上传桥接中断: {stderr or exc}"}, HTTPStatus.BAD_GATEWAY)
+                return
+            except Exception as exc:
+                self.send_json({"ok": False, "error": f"Apple 上传桥接失败: {exc}"}, HTTPStatus.BAD_GATEWAY)
+                return
+            finally:
+                if process and process.stdin:
+                    process.stdin.close()
+                if process and process.poll() is None:
+                    process.kill()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
 
             self.send_json(
                 {
                     "ok": True,
                     "receivedBytes": received,
                     "durationMs": round((perf_counter() - started) * 1000, 2),
+                    "endpoint": {
+                        "host": APPLE_CDN_HOST,
+                        "ip": session.get("endpointIp"),
+                        "rttMs": session.get("endpointRttMs"),
+                        "source": session.get("endpointSource"),
+                        "status": session.get("endpointStatus"),
+                    },
                 }
             )
             return
@@ -433,7 +830,7 @@ class EchoHandler(SimpleHTTPRequestHandler):
 def main() -> None:
     server = ThreadingHTTPServer((DEFAULT_HOST, DEFAULT_PORT), EchoHandler)
     print(f"Server running at http://{DEFAULT_HOST}:{DEFAULT_PORT}")
-    print("Browser speed APIs: GET /api/browser-speed/ping, GET /api/browser-speed/download, POST /api/browser-speed/upload")
+    print("Browser speed APIs: POST /api/browser-speed/session, GET /api/browser-speed/ping, GET /api/browser-speed/download, POST /api/browser-speed/upload")
     print("Domestic speed API: POST /api/domestic-speed")
     try:
         server.serve_forever()

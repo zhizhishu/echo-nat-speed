@@ -10,8 +10,8 @@ Public container image:
 
 - WebRTC-based NAT detection in the browser
 - IPv6 and MTU checks
-- Real browser-side speed tests from the user to the current deployed node
-- Apple CDN server-side diagnostics powered by the first-party `inetspeed/` component migrated from `nxtrace/iNetSpeed-CLI`
+- Browser-initiated Apple CDN speed tests relayed through the built-in `inetspeed` endpoint selection strategy
+- Optional Apple CDN server-side diagnostics powered by the first-party `inetspeed/` component migrated from `nxtrace/iNetSpeed-CLI`
 
 ## Structure
 
@@ -29,12 +29,12 @@ python3 serve.py
 
 Then open `http://127.0.0.1:8080`.
 
-The web UI now exposes two clearly separated capabilities:
+The web UI now focuses on one main speed-testing path:
 
-- `Browser speed test`: measures real traffic from the visiting user's browser to the current deployed node through `/api/browser-speed/*`
-- `Apple CDN diagnostic`: runs the built-in `inetspeed/` component through `/api/domestic-speed` and reports the Apple CDN endpoint selected on the server side
+- `Apple single-thread / multi-thread browser speed test`: the browser starts the transfer, while `/api/browser-speed/*` first selects an Apple endpoint and then relays download / upload traffic through that selected Apple CDN node
+- `/api/domestic-speed` is kept as an optional backend-only diagnostic API for operators
 
-This split is intentional. In a normal browser page, Apple CDN endpoints do not provide the CORS / response body access needed for a full client-side download speed test, so a pure browser-to-Apple implementation would be misleading.
+This avoids the direct browser-to-Apple CORS limitation while still making the user's browser generate the measured traffic and exposing the selected Apple endpoint in the UI.
 
 ## Run with Docker
 
