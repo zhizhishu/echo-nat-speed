@@ -81,3 +81,17 @@
   - 验证：`node --check Web/app.js`
   - 验证：`python3 -m py_compile Web/serve.py`
   - 验证：Chrome DevTools 打开 `http://127.0.0.1:8093`，分别点击“单线程测速”和“多线程测速”，两个入口都能独立完成并正确标记另一模式未执行。
+- [x] ~~**目标:** 规划国内 Apple CDN 测速模式与极简结果文案，明确浏览器测速、服务端桥接和国内节点边界~~ (创建于: 2026-04-23 13:56:45 | **完成于: 2026-04-23 14:03:45**)
+  - 结论：默认“国内测速”回归 Apple CDN / iNetSpeed-CLI 语义，浏览器到部署节点测速降为次要诊断入口。
+  - 结论：单线程与多线程保持独立按钮，结果文案精简为当前模式、下载、上传、延迟、抖动、负载延迟与 Apple CDN 节点。
+  - 结论：现阶段优先复用 `Web/serve.py` 的国内测速桥接接口，不再把 `/api/browser-speed/*` 作为默认国内测速链路。
+- [x] ~~**目标:** 参考 iNetSpeed-CLI 将默认测速改回 Apple CDN 国内测速，并精简单线程/多线程结果文案~~ (创建于: 2026-04-23 14:03:45 | **完成于: 2026-04-23 14:28:40**)
+  - 更新：`vendor/iNetSpeed-CLI` 新增 `--round-mode full|single|multi`，前端单线程与多线程现在对应真实独立轮次，不再复用同一套结果。
+  - 更新：`Web/serve.py` 透传 `round_mode`，并把测速结果收敛为当前模式的下载、上传、空载延迟、负载延迟、抖动与 Apple CDN 选点信息。
+  - 更新：`Web/index.html` 与 `Web/app.js` 将默认测速入口改为“国内单线程测速 / 国内多线程测速”，测速面板仅展示当前模式结果，去掉“未执行另一模式”等冗余文案。
+  - 更新：`README.md` 与 `README.zh-CN.md` 同步改为 Apple CDN 国内测速默认模型。
+  - 验证：`node --check Web/app.js`
+  - 验证：`python3 -m py_compile Web/serve.py`
+  - 验证：`go test ./...`（`vendor/iNetSpeed-CLI`）
+  - 验证：本地启动 `ECHO_NAT_PORT=8094 python3 Web/serve.py`，实测单线程与多线程 `POST /api/domestic-speed` 均成功返回 Apple CDN 节点与当前模式结果。
+  - 验证：Chrome DevTools 打开 `http://127.0.0.1:8094`，点击“国内单线程测速”后页面完成测速并显示 Apple CDN 单线程结果。

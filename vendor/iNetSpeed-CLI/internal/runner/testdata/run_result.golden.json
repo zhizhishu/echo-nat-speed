@@ -9,6 +9,7 @@
     "timeout_seconds": 10,
     "threads": 4,
     "latency_count": 20,
+    "round_mode": "full",
     "json": true,
     "non_interactive": true,
     "endpoint_ip": "1.1.1.1",

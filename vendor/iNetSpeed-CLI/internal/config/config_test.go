@@ -70,7 +70,7 @@ func TestHumanBytes(t *testing.T) {
 
 func TestLoadDefaults(t *testing.T) {
 	// Clear all env vars
-	for _, k := range []string{"DL_URL", "UL_URL", "LATENCY_URL", "MAX", "TIMEOUT", "THREADS", "LATENCY_COUNT"} {
+	for _, k := range []string{"DL_URL", "UL_URL", "LATENCY_URL", "MAX", "TIMEOUT", "THREADS", "LATENCY_COUNT", "ROUND_MODE"} {
 		os.Unsetenv(k)
 	}
 	cfg, err := Load()
@@ -92,6 +92,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.LatencyCount != DefaultLatencyCount {
 		t.Errorf("LatencyCount = %d, want %d", cfg.LatencyCount, DefaultLatencyCount)
 	}
+	if cfg.RoundMode != DefaultRoundMode {
+		t.Errorf("RoundMode = %q, want %q", cfg.RoundMode, DefaultRoundMode)
+	}
 	if cfg.MaxBytes != 2_000_000_000 {
 		t.Errorf("MaxBytes = %d, want 2000000000", cfg.MaxBytes)
 	}
@@ -104,8 +107,9 @@ func TestLoadEnvOverride(t *testing.T) {
 	os.Setenv("THREADS", "8")
 	os.Setenv("LATENCY_COUNT", "10")
 	os.Setenv("MAX", "1G")
+	os.Setenv("ROUND_MODE", "multi")
 	defer func() {
-		for _, k := range []string{"DL_URL", "UL_URL", "TIMEOUT", "THREADS", "LATENCY_COUNT", "MAX"} {
+		for _, k := range []string{"DL_URL", "UL_URL", "TIMEOUT", "THREADS", "LATENCY_COUNT", "MAX", "ROUND_MODE"} {
 			os.Unsetenv(k)
 		}
 	}()
@@ -126,6 +130,9 @@ func TestLoadEnvOverride(t *testing.T) {
 	if cfg.MaxBytes != 1_000_000_000 {
 		t.Errorf("MaxBytes = %d", cfg.MaxBytes)
 	}
+	if cfg.RoundMode != RoundModeMulti {
+		t.Errorf("RoundMode = %q", cfg.RoundMode)
+	}
 }
 
 func TestLoadInvalidParams(t *testing.T) {
@@ -138,10 +145,11 @@ func TestLoadInvalidParams(t *testing.T) {
 		{"THREADS", "0"},
 		{"LATENCY_COUNT", "0"},
 		{"DL_URL", "not-a-url"},
+		{"ROUND_MODE", "weird"},
 	}
 	for _, tt := range tests {
 		// Reset all to valid defaults
-		for _, k := range []string{"DL_URL", "UL_URL", "LATENCY_URL", "MAX", "TIMEOUT", "THREADS", "LATENCY_COUNT"} {
+		for _, k := range []string{"DL_URL", "UL_URL", "LATENCY_URL", "MAX", "TIMEOUT", "THREADS", "LATENCY_COUNT", "ROUND_MODE"} {
 			os.Unsetenv(k)
 		}
 		os.Setenv(tt.key, tt.val)
@@ -154,7 +162,7 @@ func TestLoadInvalidParams(t *testing.T) {
 }
 
 func TestSummary(t *testing.T) {
-	for _, k := range []string{"DL_URL", "UL_URL", "LATENCY_URL", "MAX", "TIMEOUT", "THREADS", "LATENCY_COUNT"} {
+	for _, k := range []string{"DL_URL", "UL_URL", "LATENCY_URL", "MAX", "TIMEOUT", "THREADS", "LATENCY_COUNT", "ROUND_MODE"} {
 		os.Unsetenv(k)
 	}
 	cfg, err := Load()
@@ -176,7 +184,7 @@ func TestLoadUpperLimits(t *testing.T) {
 		{"LATENCY_COUNT", "101"},
 	}
 	for _, tt := range tests {
-		for _, k := range []string{"DL_URL", "UL_URL", "LATENCY_URL", "MAX", "TIMEOUT", "THREADS", "LATENCY_COUNT"} {
+		for _, k := range []string{"DL_URL", "UL_URL", "LATENCY_URL", "MAX", "TIMEOUT", "THREADS", "LATENCY_COUNT", "ROUND_MODE"} {
 			os.Unsetenv(k)
 		}
 		os.Setenv(tt.key, tt.val)
@@ -189,7 +197,7 @@ func TestLoadUpperLimits(t *testing.T) {
 }
 
 func TestLoadUpperLimitsAtBoundary(t *testing.T) {
-	for _, k := range []string{"DL_URL", "UL_URL", "LATENCY_URL", "MAX", "TIMEOUT", "THREADS", "LATENCY_COUNT"} {
+	for _, k := range []string{"DL_URL", "UL_URL", "LATENCY_URL", "MAX", "TIMEOUT", "THREADS", "LATENCY_COUNT", "ROUND_MODE"} {
 		os.Unsetenv(k)
 	}
 	os.Setenv("TIMEOUT", "120")
@@ -211,7 +219,7 @@ func TestLoadUpperLimitsAtBoundary(t *testing.T) {
 }
 
 func TestLoadFlagOverrides(t *testing.T) {
-	for _, k := range []string{"DL_URL", "UL_URL", "LATENCY_URL", "MAX", "TIMEOUT", "THREADS", "LATENCY_COUNT"} {
+	for _, k := range []string{"DL_URL", "UL_URL", "LATENCY_URL", "MAX", "TIMEOUT", "THREADS", "LATENCY_COUNT", "ROUND_MODE"} {
 		os.Unsetenv(k)
 	}
 	os.Setenv("TIMEOUT", "5")
@@ -225,6 +233,7 @@ func TestLoadFlagOverrides(t *testing.T) {
 		"--timeout", "12",
 		"--threads", "9",
 		"--latency-count", "15",
+		"--round-mode", "multi",
 	)
 	if err != nil {
 		t.Fatalf("Load() with flags should succeed: %v", err)
@@ -250,6 +259,9 @@ func TestLoadFlagOverrides(t *testing.T) {
 	}
 	if cfg.LatencyCount != 15 {
 		t.Errorf("LatencyCount = %d", cfg.LatencyCount)
+	}
+	if cfg.RoundMode != RoundModeMulti {
+		t.Errorf("RoundMode = %q", cfg.RoundMode)
 	}
 }
 
@@ -334,5 +346,12 @@ func TestLoadInvalidEndpointIP(t *testing.T) {
 	_, err := Load("--endpoint", "not-an-ip")
 	if err == nil {
 		t.Fatal("expected invalid endpoint IP to fail")
+	}
+}
+
+func TestLoadRoundModeMultiRequiresMoreThanOneThread(t *testing.T) {
+	_, err := Load("--threads", "1", "--round-mode", "multi")
+	if err == nil {
+		t.Fatal("expected multi round mode with one thread to fail")
 	}
 }
