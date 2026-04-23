@@ -133,3 +133,11 @@
   - 验证：本地启动 `python3 Web/serve.py` 后，`POST /api/browser-speed/session` 成功返回 Apple 节点 `113.96.136.165` / `113.96.136.166` 等真实 IP。
   - 验证：`GET /api/browser-speed/ping`、`GET /api/browser-speed/download`、`POST /api/browser-speed/upload` 均成功经过会话节点完成回归。
   - 验证：Chrome 页面打开 `http://127.0.0.1:8080`，点击 `Apple 单线程测速` 后，页面实测显示 Apple 节点 `113.96.136.167`，请求链包含 `session -> ping -> download -> upload` 全流程。
+- [x] ~~**目标:** 修正 Apple 浏览器测速的上传高报问题，并复核最新 GitHub Actions / GHCR `latest` 是否已滚动到新提交~~ (创建于: 2026-04-23 16:48:53 | **完成于: 2026-04-23 16:54:22**)
+  - 更新：`Web/app.js` 将多线程上传样本量从总计 `24 MiB` 提高到 `48 MiB`，降低短时突发缓存对结果的放大量。
+  - 更新：`Web/app.js` 将最终上传测速结果改为按完整请求墙钟时间计算的 `rawAverageMbps`，不再直接使用 `xhr.upload.onprogress` 的裁剪平均值作为最终上传值。
+  - 验证：`node --check Web/app.js`
+  - 验证：`python3 -m py_compile Web/serve.py`
+  - 验证：本地浏览器打开 `http://127.0.0.1:8101`，执行 `Apple 多线程测速` 后，结果显示下载 `189.5 Mbps`、上传 `11.5 Mbps`，测速节点为 `113.96.136.169`，上传结果已不再出现先前那种明显偏高的数值。
+  - 复核：GitHub Actions API 返回 `Publish GHCR Image` 运行 `24825771821` 对应提交 `9ed000a98321d353f989ce24b66e7fd6c23db2c7`，状态为 `completed/success`。
+  - 复核：GitHub 包页面 `https://github.com/zhizhishu/echo-nat-speed/pkgs/container/echo-nat-speed` 已可检出 `latest` 与 `sha-9ed000a` 标签。

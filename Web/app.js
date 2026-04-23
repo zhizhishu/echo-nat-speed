@@ -21,7 +21,7 @@ const LATENCY_SAMPLE_COUNT = 7;
 const DOWNLOAD_SINGLE_BYTES = 24 * 1024 * 1024;
 const DOWNLOAD_MULTI_STREAM_BYTES = 16 * 1024 * 1024;
 const UPLOAD_SINGLE_BYTES = 12 * 1024 * 1024;
-const UPLOAD_MULTI_STREAM_BYTES = 6 * 1024 * 1024;
+const UPLOAD_MULTI_STREAM_BYTES = 12 * 1024 * 1024;
 const DOWNLOAD_MULTI_CONCURRENCY = 4;
 const UPLOAD_MULTI_CONCURRENCY = 4;
 const PROGRESS_THROTTLE_MS = 120;
@@ -713,11 +713,15 @@ async function runUploadPhase({ concurrency, bytesPerStream, sessionId, onProgre
       })
     )
   );
+  const summary = tracker.finalize();
 
   return {
     direction: 'upload',
     concurrency,
-    ...tracker.finalize(),
+    ...summary,
+    // Upload progress events can be front-loaded by browser / proxy buffering.
+    // Use full request wall time for the final reported upload speed.
+    mbps: summary.rawAverageMbps ?? summary.mbps,
     totalBytes: received.reduce((sum, current) => sum + current, 0),
   };
 }
