@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/tsosunchia/iNetSpeed-CLI/internal/i18n"
+	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/i18n"
 )
 
 func TestParseSize(t *testing.T) {

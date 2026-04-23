@@ -91,3 +91,15 @@
   - 验证：`go test ./...`（`vendor/iNetSpeed-CLI`）
   - 验证：本地启动 `ECHO_NAT_PORT=8095 python3 Web/serve.py`，实测浏览器测速 ping/download/upload 接口成功。
   - 验证：Chrome DevTools 打开 `http://127.0.0.1:8095`，点击“单线程测速”后页面完成用户浏览器测速，且无控制台报错。
+- [x] ~~**目标:** 将 iNetSpeed-CLI 从 vendor 外部依赖迁移为 Echo NAT Speed 内置测速组件~~ (创建于: 2026-04-23 14:56:54 | **完成于: 2026-04-23 15:19:05**)
+  - 更新：将 `vendor/iNetSpeed-CLI` 迁移为一级目录 `inetspeed/`，作为本项目内置源码组件维护。
+  - 更新：修改 Go module/import 路径为 `github.com/zhizhishu/echo-nat-speed/inetspeed`，并保留上游 `nxtrace/iNetSpeed-CLI` 来源说明。
+  - 更新：`Dockerfile` 改为从 `inetspeed/` 构建 `/usr/local/bin/speedtest`，不再引用旧 vendor 路径。
+  - 更新：`Web/serve.py` 默认优先使用仓库内 `inetspeed/`，Docker 运行时回退使用镜像内置 `speedtest` 二进制。
+  - 更新：`README.md`、`README.zh-CN.md` 和 `inetspeed/README.md` 改为内置组件语义。
+  - 验证：`go test ./...`（`inetspeed/`）
+  - 验证：`node --check Web/app.js`
+  - 验证：`python3 -m py_compile Web/serve.py`
+  - 验证：本地启动 `ECHO_NAT_PORT=8096 python3 Web/serve.py`，`/api/health` 返回 `commandMode=repo` 且 `commandSource` 指向 `inetspeed/`。
+  - 验证：`POST /api/domestic-speed` 成功通过内置 `inetspeed/` 执行 Apple CDN 诊断并返回 JSON。
+  - 注意：本机 Docker daemon 未运行，`docker build -t echo-nat-speed:test .` 暂无法执行，错误为无法连接 Docker socket。

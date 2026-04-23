@@ -17,10 +17,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tsosunchia/iNetSpeed-CLI/internal/config"
-	"github.com/tsosunchia/iNetSpeed-CLI/internal/i18n"
-	"github.com/tsosunchia/iNetSpeed-CLI/internal/netx"
-	"github.com/tsosunchia/iNetSpeed-CLI/internal/render"
+	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/config"
+	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/i18n"
+	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/netx"
+	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/render"
 )
 
 var ipv4Re = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)

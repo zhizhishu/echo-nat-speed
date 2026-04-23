@@ -9,9 +9,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/tsosunchia/iNetSpeed-CLI/internal/config"
-	"github.com/tsosunchia/iNetSpeed-CLI/internal/endpoint"
-	"github.com/tsosunchia/iNetSpeed-CLI/internal/render"
+	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/config"
+	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/endpoint"
+	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/render"
 	"testing"
 )
 

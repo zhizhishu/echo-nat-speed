@@ -19,7 +19,8 @@ WEB_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = WEB_ROOT.parent
 DEFAULT_HOST = os.getenv("ECHO_NAT_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.getenv("ECHO_NAT_PORT", "8080"))
-INETSPEED_REPO_URL = "https://github.com/nxtrace/iNetSpeed-CLI"
+INETSPEED_COMPONENT = "Echo NAT Speed 内置 inetspeed"
+INETSPEED_REPO = PROJECT_ROOT / "inetspeed"
 DEFAULT_BROWSER_DOWNLOAD_BYTES = 32 * 1024 * 1024
 MIN_BROWSER_DOWNLOAD_BYTES = 1 * 1024 * 1024
 MAX_BROWSER_DOWNLOAD_BYTES = 128 * 1024 * 1024
@@ -34,32 +35,49 @@ def candidate_repo_paths() -> list[Path]:
     env_repo = os.getenv("INETSPEED_CLI_REPO", "").strip()
     if env_repo:
         candidates.append(Path(env_repo).expanduser())
-    candidates.extend(
-        [
-            PROJECT_ROOT / "vendor" / "iNetSpeed-CLI",
-            PROJECT_ROOT / "iNetSpeed-CLI",
-            Path("/tmp/iNetSpeed-CLI"),
-        ]
-    )
+    candidates.append(INETSPEED_REPO)
     return candidates
 
 
 def resolve_cli_command() -> tuple[list[str], Path | None, dict[str, str]]:
     custom_cmd = os.getenv("INETSPEED_CLI_CMD", "").strip()
     if custom_cmd:
-        return shlex.split(custom_cmd), None, {"mode": "command", "source": "INETSPEED_CLI_CMD"}
+        return shlex.split(custom_cmd), None, {
+            "mode": "command",
+            "source": "INETSPEED_CLI_CMD",
+            "component": INETSPEED_COMPONENT,
+        }
+
+    go_bin = shutil.which("go")
+    repo_found = False
+    for repo_path in candidate_repo_paths():
+        if (repo_path / "cmd" / "speedtest" / "main.go").exists():
+            repo_found = True
+            if go_bin:
+                return [go_bin, "run", "./cmd/speedtest"], repo_path, {
+                    "mode": "repo",
+                    "source": str(repo_path),
+                    "component": INETSPEED_COMPONENT,
+                }
 
     for executable in ("speedtest", "inetspeed"):
         resolved = shutil.which(executable)
         if resolved:
-            return [resolved], None, {"mode": "binary", "source": resolved}
+            return [resolved], None, {
+                "mode": "binary",
+                "source": resolved,
+                "component": INETSPEED_COMPONENT,
+            }
 
-    for repo_path in candidate_repo_paths():
-        if (repo_path / "cmd" / "speedtest" / "main.go").exists():
-            return ["go", "run", "./cmd/speedtest"], repo_path, {"mode": "repo", "source": str(repo_path)}
+    if repo_found:
+        raise FileNotFoundError(
+            "已找到内置 inetspeed 源码，但当前环境没有 go 命令。"
+            "请安装 Go，或使用 Docker 镜像内置的 speedtest 二进制，"
+            "或设置 INETSPEED_CLI_CMD 指向可执行命令。"
+        )
 
     raise FileNotFoundError(
-        "未找到 iNetSpeed-CLI。请先安装 speedtest/inetspeed 到 PATH，"
+        "未找到内置 inetspeed 组件。请确认仓库包含 inetspeed/，"
         "或设置 INETSPEED_CLI_CMD / INETSPEED_CLI_REPO。"
     )
 
@@ -205,9 +223,9 @@ def run_domestic_speed(payload: dict[str, object]) -> dict[str, object]:
     try:
         data = json.loads(stdout) if stdout else None
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"iNetSpeed-CLI 返回了无法解析的 JSON: {exc}") from exc
+        raise RuntimeError(f"inetspeed 返回了无法解析的 JSON: {exc}") from exc
     if not isinstance(data, dict):
-        detail = stderr or stdout or "iNetSpeed-CLI 未返回可解析的 JSON。"
+        detail = stderr or stdout or "inetspeed 未返回可解析的 JSON。"
         raise RuntimeError(detail)
 
     result_exit_code = int(data.get("exit_code", completed.returncode))
@@ -276,6 +294,8 @@ class EchoHandler(SimpleHTTPRequestHandler):
                         "browserSpeedReady": True,
                         "speedtestReady": True,
                         "bridge": "python",
+                        "component": source.get("component"),
+                        "commandMode": source.get("mode"),
                         "command": command,
                         "workingDirectory": str(cwd) if cwd else None,
                         "commandSource": source.get("source"),
@@ -288,6 +308,7 @@ class EchoHandler(SimpleHTTPRequestHandler):
                         "browserSpeedReady": True,
                         "speedtestReady": False,
                         "bridge": "python",
+                        "component": INETSPEED_COMPONENT,
                         "error": str(exc),
                     }
                 )
@@ -385,11 +406,11 @@ class EchoHandler(SimpleHTTPRequestHandler):
                 {
                     "ok": False,
                     "error": str(exc),
-                    "repo_url": INETSPEED_REPO_URL,
+                    "component": INETSPEED_COMPONENT,
                     "hints": [
-                        "安装 speedtest/inetspeed 到 PATH。",
-                        "或设置 INETSPEED_CLI_REPO=/path/to/iNetSpeed-CLI。",
-                        "或设置 INETSPEED_CLI_CMD 指向可执行命令。",
+                        "默认使用仓库内 inetspeed/ 源码组件。",
+                        "本地源码运行需要安装 Go；Docker 镜像已内置 speedtest 二进制。",
+                        "也可以设置 INETSPEED_CLI_CMD 指向自定义可执行命令。",
                     ],
                 },
                 HTTPStatus.SERVICE_UNAVAILABLE,

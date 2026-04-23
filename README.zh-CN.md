@@ -11,13 +11,14 @@
 - 浏览器内基于 WebRTC 的 NAT 检测
 - IPv6 与 MTU 检查
 - 当前用户浏览器到当前测速节点的真实下载与上传测速
-- 保留可选的 `iNetSpeed-CLI` 服务端测速桥接，便于运维侧诊断
+- 从 `nxtrace/iNetSpeed-CLI` 迁移进来的一级源码组件 `inetspeed/`，用于 Apple CDN 诊断
 
 ## 项目结构
 
 - `Web/`：浏览器端界面、浏览器测速接口与可选 CLI 桥接服务
 - `CLI/`：Shell 与 PowerShell NAT 检测脚本
 - `Tests/`：模拟 STUN 与 UDP 辅助测试代码
+- `inetspeed/`：从 `nxtrace/iNetSpeed-CLI` 迁移而来的内置 Go 测速组件
 
 ## 本地运行
 
@@ -28,13 +29,13 @@ python3 serve.py
 
 然后打开 `http://127.0.0.1:8080`。
 
-如果你仍然需要使用可选的 `iNetSpeed-CLI` 服务端测速接口，再额外设置 `INETSPEED_CLI_REPO` 或把 `speedtest` 安装到 `PATH`。
+网页上的测速按钮测的是当前用户浏览器到当前部署节点的真实流量。内置 `inetspeed/` 组件同时通过 `/api/domestic-speed` 提供服务端 Apple CDN 诊断能力。
 
-注意：网页默认测速结果始终由用户浏览器发起。内置 `iNetSpeed-CLI` 接口只作为服务端诊断能力，不作为用户测速结果。
+注意：浏览器不能指定 Apple CDN 候选 IP，也不能在 Apple 未开放 CORS 的情况下读取测速响应体。因此 `inetspeed/` 诊断会明确保留为服务端诊断，不混入浏览器测速结果。
 
 ## 使用 Docker 运行
 
-镜像默认直接提供浏览器测速接口。同时镜像内也打包了 vendored 版本的 `iNetSpeed-CLI` 以保留可选的服务端测速诊断能力，宿主机不需要额外安装 `speedtest`，并且 `docker build` 过程中也不再依赖从 GitHub 在线拉取源码。
+镜像默认直接提供浏览器测速接口。同时镜像会把一级源码组件 `inetspeed/` 构建到 `/usr/local/bin/speedtest`，宿主机不需要额外安装 `speedtest`，并且 `docker build` 过程中不会从 GitHub 在线拉取源码。
 
 使用 Docker 构建并运行：
 
@@ -71,6 +72,6 @@ docker compose up --build
 - 实例数：`1`
 - 规格：`0.5 vCPU / 512 MB`
 
-## Vendored 依赖
+## 内置 inetspeed 组件
 
-为了保证 Docker 构建稳定性，仓库内包含 `vendor/iNetSpeed-CLI`，当前同步自上游 `nxtrace/iNetSpeed-CLI` 提交 `dd6f601b4968ee18c7d4a950490bfcb4d7c608d6`。
+`inetspeed/` 已经作为本仓库源码的一部分维护，迁移自上游 `nxtrace/iNetSpeed-CLI` 提交 `dd6f601b4968ee18c7d4a950490bfcb4d7c608d6`。Docker 构建会直接编译这个本地组件。

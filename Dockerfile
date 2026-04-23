@@ -3,8 +3,8 @@
 FROM golang:1.25-bookworm AS inetspeed-builder
 
 WORKDIR /src
-COPY vendor/iNetSpeed-CLI ./iNetSpeed-CLI
-WORKDIR /src/iNetSpeed-CLI
+COPY inetspeed ./inetspeed
+WORKDIR /src/inetspeed
 RUN CGO_ENABLED=0 go build -mod=vendor -trimpath -ldflags="-s -w" -o /out/speedtest ./cmd/speedtest
 
 

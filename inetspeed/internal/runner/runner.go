@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tsosunchia/iNetSpeed-CLI/internal/config"
-	"github.com/tsosunchia/iNetSpeed-CLI/internal/endpoint"
-	"github.com/tsosunchia/iNetSpeed-CLI/internal/i18n"
-	"github.com/tsosunchia/iNetSpeed-CLI/internal/latency"
-	"github.com/tsosunchia/iNetSpeed-CLI/internal/netx"
-	"github.com/tsosunchia/iNetSpeed-CLI/internal/render"
-	"github.com/tsosunchia/iNetSpeed-CLI/internal/transfer"
+	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/config"
+	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/endpoint"
+	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/i18n"
+	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/latency"
+	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/netx"
+	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/render"
+	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/transfer"
 )
 
 func Run(ctx context.Context, cfg *config.Config, bus *render.Bus, isTTY bool) RunResult {

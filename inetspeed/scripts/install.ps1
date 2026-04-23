@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$Repo = if ($env:REPO) { $env:REPO } else { "tsosunchia/iNetSpeed-CLI" }
+$Repo = if ($env:REPO) { $env:REPO } else { "nxtrace/iNetSpeed-CLI" }
 $Binary = $null
 $DefaultBinary = "speedtest.exe"
 $ReleaseBinary = "speedtest.exe"

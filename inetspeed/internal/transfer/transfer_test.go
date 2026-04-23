@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tsosunchia/iNetSpeed-CLI/internal/config"
-	"github.com/tsosunchia/iNetSpeed-CLI/internal/render"
+	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/config"
+	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/render"
 )
 
 func TestZeroReader(t *testing.T) {

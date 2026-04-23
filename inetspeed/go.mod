@@ -1,4 +1,4 @@
-module github.com/tsosunchia/iNetSpeed-CLI
+module github.com/zhizhishu/echo-nat-speed/inetspeed
 
 go 1.25.0
 

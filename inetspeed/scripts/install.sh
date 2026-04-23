@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="${REPO:-tsosunchia/iNetSpeed-CLI}"
+REPO="${REPO:-nxtrace/iNetSpeed-CLI}"
 DEFAULT_BINARY="speedtest"
 RELEASE_BINARY="speedtest"
 BINARY_ENV_SET=0

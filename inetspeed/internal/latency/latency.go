@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tsosunchia/iNetSpeed-CLI/internal/config"
+	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/config"
 )
 
 type Stats struct {

@@ -11,13 +11,14 @@ Public container image:
 - WebRTC-based NAT detection in the browser
 - IPv6 and MTU checks
 - Real browser-side download and upload tests from the user to the current speed node
-- An optional server-side `iNetSpeed-CLI` bridge kept for operator-side diagnostics
+- A first-party `inetspeed/` component migrated from `nxtrace/iNetSpeed-CLI` for Apple CDN diagnostics
 
 ## Structure
 
 - `Web/`: browser UI, browser speed APIs, and optional CLI bridge server
 - `CLI/`: shell and PowerShell NAT detection scripts
 - `Tests/`: mock STUN and UDP helpers
+- `inetspeed/`: built-in Go speed test component migrated from `nxtrace/iNetSpeed-CLI`
 
 ## Run locally
 
@@ -28,13 +29,13 @@ python3 serve.py
 
 Then open `http://127.0.0.1:8080`.
 
-If you still want to use the optional server-side `iNetSpeed-CLI` bridge API, set `INETSPEED_CLI_REPO` or install `speedtest` into `PATH`.
+The web speed buttons measure traffic from the user's browser to the currently deployed node. The built-in `inetspeed/` component is also exposed through `/api/domestic-speed` for server-side Apple CDN diagnostics.
 
-Note: the default web speed result is always measured by the user's browser. The bundled `iNetSpeed-CLI` API is server-side diagnostics only and should not be treated as the user's speed result.
+Note: browsers cannot select Apple CDN endpoint IPs or read Apple CDN response bodies without CORS permission. For that reason, `inetspeed/` diagnostics are clearly kept as server-side diagnostics and are not mixed into browser speed results.
 
 ## Run with Docker
 
-The container image exposes browser speed endpoints by default. It also bundles a vendored copy of `iNetSpeed-CLI` for optional server-side diagnostics, so the host machine does not need to install `speedtest` separately and the image build no longer depends on cloning GitHub during `docker build`.
+The container image exposes browser speed endpoints by default. It also builds the first-party `inetspeed/` component into `/usr/local/bin/speedtest`, so the host machine does not need to install `speedtest` separately and the image build does not clone GitHub during `docker build`.
 
 Build and run with Docker:
 
@@ -71,6 +72,6 @@ Recommended app settings:
 - Replicas: `1`
 - CPU / Memory: `0.5 vCPU / 512 MB`
 
-## Vendored dependency
+## Built-in inetspeed component
 
-For Docker reliability, the repository includes `vendor/iNetSpeed-CLI`, synced from upstream `nxtrace/iNetSpeed-CLI` commit `dd6f601b4968ee18c7d4a950490bfcb4d7c608d6`.
+`inetspeed/` is now part of this repository, migrated from upstream `nxtrace/iNetSpeed-CLI` commit `dd6f601b4968ee18c7d4a950490bfcb4d7c608d6`. Docker builds compile this local component directly.

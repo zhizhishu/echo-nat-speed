@@ -1,47 +1,27 @@
-# iNetSpeed-CLI
+# inetspeed
 
-基于 Apple CDN 的跨平台 CLI 测速工具。  
-单一 Go 二进制，支持交互式测速和机器可读 JSON 输出。
+Echo NAT Speed 内置的 Apple CDN 诊断组件，迁移自 `nxtrace/iNetSpeed-CLI`。
+
+它仍然是单一 Go 二进制，支持交互式测速和机器可读 JSON 输出；在本项目中主要由 `Web/serve.py` 通过 `/api/domestic-speed` 调用，Docker 构建会直接把本目录编译成 `/usr/local/bin/speedtest`。
 
 ![speedtest demo](./demo.svg)
 
-## 安装
+## 在 Echo NAT Speed 中使用
 
-### macOS / Linux
+从仓库根目录启动 Web 服务时，桥接服务会优先使用这个内置源码组件：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tsosunchia/iNetSpeed-CLI/main/scripts/install.sh | bash
+cd Web
+python3 serve.py
 ```
 
-安装器会询问命令名：`speedtest` 或 `inetspeed`，直接回车默认 `speedtest`。
+也可以单独在本目录运行：
 
-默认安装位置：
-
-- 普通用户优先安装到 `~/.local/bin`；如果 `~/bin` 已在 `PATH` 中，则优先复用 `~/bin`
-- `root` 安装到 `/usr/local/bin`
-- 若用户目录不在 `PATH`，安装脚本会自动追加到当前 shell 的 rc 文件
-
-也可以从 Releases 下载归档包：
-
-- [Latest Release](https://github.com/tsosunchia/iNetSpeed-CLI/releases/latest)
-
-### Windows
-
-PowerShell:
-
-```powershell
-irm https://raw.githubusercontent.com/tsosunchia/iNetSpeed-CLI/main/scripts/install.ps1 | iex
+```bash
+go run ./cmd/speedtest --json --non-interactive --lang zh --no-metadata
 ```
 
-安装器会询问命令名：`speedtest` 或 `inetspeed`，直接回车默认 `speedtest`。
-
-或直接下载 `speedtest-windows-amd64.zip`。
-
-默认安装位置：
-
-- 普通用户安装到 `%LOCALAPPDATA%\Programs\<所选命令名>`
-- 管理员安装到 `%ProgramFiles%\<所选命令名>`
-- 安装脚本会把目录写入用户级或机器级 `PATH`
+如果需要自定义二进制路径，设置 `INETSPEED_CLI_CMD`；如果需要指向另一个源码目录，设置 `INETSPEED_CLI_REPO`。
 
 ## Legacy Shell 脚本
 
