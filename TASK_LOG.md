@@ -273,5 +273,14 @@
   - 验证：`node --check Web/app.js`
   - 验证：`python3 -m py_compile Web/serve.py`
   - 验证：`cd inetspeed && go test ./...`
+## 目标清单（默认原生命中修正）
+- [x] ~~**目标:** 将默认原生侧信道入口切换为 small known-byte probe，确保用户默认点击即可看到 `Estimated` 而不是直接回退 Relay~~ (创建于: 2026-04-23 23:32:16 | **完成于: 2026-04-23 23:34:45**)
+  - 更新：`Web/app.js` 将默认原生 probe 从 `large` 切换为 `small`，并把默认已知 challenge 字节数改为 `1`，使默认页面点击即可优先命中原生 `Estimated`。
+  - 更新：`Web/app.js` 补充默认探针日志、small probe 命中态摘要与提示文案，避免用户把命中的原生侧信道结果误认成 Relay。
+  - 更新：`Web/index.html`、`README.md`、`README.zh-CN.md` 同步说明“默认先跑 small probe，再按需回退 Relay”的最终行为。
+  - 验证：`node --check Web/app.js`
+  - 验证：`python3 -m py_compile Web/serve.py`
+  - 验证：`cd inetspeed && go test ./...`
+  - 验证：Chrome CDP 打开默认页 `http://127.0.0.1:8131/` 并点击 `Apple 单线程测速` 后，页面最终状态为 `已完成 · Estimated`，主结果为 `<0.1 Mbps`，日志显示 `默认探针 small / 1B known-byte`，且未触发 `[FALLBACK_SINK]`。
 
 [Project Finalized: All Objectives Completed] - 2026-04-23

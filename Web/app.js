@@ -20,7 +20,8 @@ const BROWSER_SPEED_UPLOAD_API = `${BROWSER_SPEED_BASE}/upload`;
 const APPLE_DIRECT_HOST = 'mensura.cdn-apple.com';
 const APPLE_DIRECT_BASE = `https://${APPLE_DIRECT_HOST}/api/v1/gm`;
 const APPLE_DIRECT_RTT_URL = `${APPLE_DIRECT_BASE}/small`;
-const APPLE_DIRECT_DOWNLOAD_URL = `${APPLE_DIRECT_BASE}/large`;
+const APPLE_DIRECT_LARGE_DOWNLOAD_URL = `${APPLE_DIRECT_BASE}/large`;
+const APPLE_DIRECT_NATIVE_PROBE_URL = APPLE_DIRECT_RTT_URL;
 const LATENCY_SAMPLE_COUNT = 7;
 const DOWNLOAD_SINGLE_BYTES = 24 * 1024 * 1024;
 const DOWNLOAD_MULTI_STREAM_BYTES = 16 * 1024 * 1024;
@@ -35,7 +36,7 @@ const FALLBACK_SINK_TAG = '[FALLBACK_SINK]';
 const NATIVE_DIRECT_ENTRY_TIMEOUT_MS = 20000;
 const NATIVE_DIRECT_RTT_TIMEOUT_MS = 4000;
 const NATIVE_DIRECT_MAX_COMPLETE_BYTES = 64 * 1024 * 1024;
-const DEFAULT_NATIVE_PROBE_KNOWN_BYTES = 4 * 1024 * 1024 * 1024;
+const DEFAULT_NATIVE_PROBE_KNOWN_BYTES = 1;
 
 const uploadPayloadCache = new Map();
 const speedRuntime = {
@@ -55,10 +56,10 @@ const SPEED_SOURCE_META = {
     jitterDetail: '浏览器侧延迟波动',
     endpointLabel: () => speedRuntime.endpoint || 'mensura.cdn-apple.com',
     endpointDetail: () => speedRuntime.endpointDetail || '纯净 Chrome / 无插件 / 不修改配置',
-    waitingSummary: '原生直连优先，Relay 为回退',
-    waitingHint: '当前链路优先执行 Zero-Install 原生 Resource Timing 侧信道审计；若未获得可信下载估算，再回退 Apple CDN Relay。',
-    preparingHint: '正在执行 Zero-Install 原生 Resource Timing 侧信道审计；不会使用插件或修改浏览器配置。',
-    successHint: '已记录原生浏览器 Resource Timing 侧信道结果；若未获得可信下载估算，功能测速结果将来自 Relay 回退。',
+    waitingSummary: '原生 small probe 优先，Relay 为回退',
+    waitingHint: '当前链路会先执行 Zero-Install 原生 small probe（已知大小 challenge），命中后直接展示 Estimated；只有未获得可信 Timing 记录时才回退 Apple CDN Relay。',
+    preparingHint: '正在执行 Zero-Install 原生 small probe / Resource Timing 侧信道审计；不会使用插件或修改浏览器配置。',
+    successHint: '已记录原生浏览器 small probe / Resource Timing 侧信道结果；若未获得可信下载估算，功能测速结果将来自 Relay 回退。',
     failHintSource: '原生直连',
   },
   relay: {
@@ -220,7 +221,7 @@ function getNativeTimingProbeConfig(mode = 'multi') {
   const storedUrl = window.localStorage.getItem('echo_nat_native_probe_url') || '';
   const storedBytes = window.localStorage.getItem('echo_nat_native_probe_bytes') || '';
   const storedTimeout = window.localStorage.getItem('echo_nat_native_probe_timeout_ms') || '';
-  const rawUrl = params.get('nativeProbeUrl') || storedUrl || APPLE_DIRECT_DOWNLOAD_URL;
+  const rawUrl = params.get('nativeProbeUrl') || storedUrl || APPLE_DIRECT_NATIVE_PROBE_URL;
   const knownBytes = parseOptionalPositiveInt(params.get('nativeProbeBytes') || storedBytes) ?? DEFAULT_NATIVE_PROBE_KNOWN_BYTES;
   const timeoutMs = clampNumber(
     parseOptionalPositiveInt(params.get('nativeProbeTimeoutMs') || storedTimeout) ?? NATIVE_DIRECT_ENTRY_TIMEOUT_MS,
@@ -233,6 +234,9 @@ function getNativeTimingProbeConfig(mode = 'multi') {
     knownBytes,
     timeoutMs,
     latencyUrl: APPLE_DIRECT_RTT_URL,
+    defaultProbeLabel: rawUrl === APPLE_DIRECT_NATIVE_PROBE_URL && knownBytes === DEFAULT_NATIVE_PROBE_KNOWN_BYTES
+      ? 'small-known-byte-probe'
+      : 'custom-native-probe',
     canAttemptFullDownload: knownBytes <= NATIVE_DIRECT_MAX_COMPLETE_BYTES,
   };
 }
@@ -240,6 +244,9 @@ function getNativeTimingProbeConfig(mode = 'multi') {
 function formatMbps(value) {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return '-';
+  }
+  if (value < 0.1) {
+    return '<0.1 Mbps';
   }
   return `${value.toFixed(1)} Mbps`;
 }
@@ -1498,12 +1505,14 @@ function renderNativeDirectEstimateResult(mode, idleLatency, downloadEstimate) {
     borderColor: 'var(--accent-green)',
     status: '已完成 · Estimated',
     mainValue: formatMbps(downloadEstimate.mbps),
-    summary: `${modeConfig.label}直连侧信道估算完成`,
+    summary: downloadEstimate.config?.defaultProbeLabel === 'small-known-byte-probe'
+      ? `${modeConfig.label}原生 small probe 已命中`
+      : `${modeConfig.label}直连侧信道估算完成`,
   });
   updateSpeedMetric(
     modeConfig.downloadMetricId,
     formatMbps(downloadEstimate.mbps),
-    `${downloadEstimate.byteSource} · ${formatBytesMiB(downloadEstimate.measuredBytes)} · duration ${downloadEstimate.timing.durationMs.toFixed(1)} ms`
+    `${downloadEstimate.byteSource} · ${formatBytesMiB(downloadEstimate.measuredBytes)} · duration ${downloadEstimate.timing.durationMs.toFixed(1)} ms${downloadEstimate.config?.defaultProbeLabel === 'small-known-byte-probe' ? ' · default small probe' : ''}`
   );
   updateSpeedMetric(modeConfig.uploadMetricId, '-', '本次原生侧信道实现仅对下载做估算；上传仍需单独挑战。');
   renderLatencyBaseline(idleLatency);
@@ -1514,7 +1523,7 @@ function renderNativeDirectEstimateResult(mode, idleLatency, downloadEstimate) {
   );
   updateSpeedMetric('speedLatencyUpload', '-', sourceMeta.uploadLatencyDetail);
   renderSpeedEndpoint(APPLE_DIRECT_HOST, '纯净 Chrome / 无插件 / Resource Timing 侧信道');
-  setSpeedHint('已获得原生浏览器 Resource Timing 下载估算，本次不再回退 Relay。', 'success');
+  setSpeedHint(downloadEstimate.config?.defaultProbeLabel === 'small-known-byte-probe' ? '已命中默认原生 small probe；当前展示的是原生侧信道 Estimated，不再回退 Relay。' : '已获得原生浏览器 Resource Timing 下载估算，本次不再回退 Relay。', 'success');
 
   addLog(sourceMeta.logLabel, `侧信道下载估算 ${formatMbps(downloadEstimate.mbps)} · ${formatBytesMiB(downloadEstimate.measuredBytes)} / ${downloadEstimate.timing.durationMs.toFixed(1)} ms`, 'result', 'speed');
   addLog(sourceMeta.logLabel, `字节来源 ${downloadEstimate.byteSource} · nextHop=${downloadEstimate.timing.nextHopProtocol || 'n/a'}`, 'info', 'speed');
@@ -1529,6 +1538,7 @@ async function startNativeDirectSpeedTest(mode = 'multi') {
   setBrowserSpeedPreparing(mode, source);
   renderSpeedEndpoint(APPLE_DIRECT_HOST, '纯净 Chrome / 无插件 / Resource Timing 侧信道');
   addLog(sourceMeta.logLabel, `开始${modeConfig.label} Zero-Install 原生侧信道审计...`, 'info', 'speed');
+  addLog(sourceMeta.logLabel, `默认探针 ${getNativeTimingProbeConfig(mode).defaultProbeLabel === 'small-known-byte-probe' ? 'small / 1B known-byte' : getNativeTimingProbeConfig(mode).url}`, 'info', 'speed');
 
   const idleLatency = await measureNativeDirectLatency(LATENCY_SAMPLE_COUNT);
   addLog(
@@ -1551,7 +1561,7 @@ async function startNativeDirectSpeedTest(mode = 'multi') {
     if (downloadEstimate.config) {
       addLog(
         sourceMeta.logLabel,
-        `已知资源 ${formatBytesMiB(downloadEstimate.config.knownBytes)} · 当前 URL ${downloadEstimate.config.url}`,
+        `已知资源 ${formatBytesMiB(downloadEstimate.config.knownBytes)} · 当前 URL ${downloadEstimate.config.url} · probe=${downloadEstimate.config.defaultProbeLabel || 'custom'}`,
         'info',
         'speed'
       );

@@ -36,7 +36,7 @@ python3 serve.py
 网页测速现在采用“原生优先、Relay 回退”的执行模型：
 
 1. **Zero-Install 原生直连估算**  
-   页面先对 `https://mensura.cdn-apple.com/...` 发起 `no-cors` 请求，等待 `PerformanceResourceTiming` 记录，并尽量用浏览器可见的时间信息估算吞吐；如果浏览器不暴露 `transferSize` / `encodedBodySize`，而赛题资源大小又是已知的，则退回到“已知字节数 ÷ 持续时间”的侧信道估算。
+   页面现在默认先对 `https://mensura.cdn-apple.com/...` 的 small probe 发起 `no-cors` 请求，等待 `PerformanceResourceTiming` 记录，并尽量用浏览器可见的时间信息估算吞吐；如果浏览器不暴露 `transferSize` / `encodedBodySize`，页面仍可依赖“已知 challenge 字节数 ÷ 持续时间”直接给出 `Estimated` 结果。
 2. **边界诚实记录**  
    如果资源过大、不适合在页面中完整下载，或浏览器没有暴露可用于计算的 Timing 记录，页面会明确记录限制，而不是伪造原生直连 Mbps。
 3. **Relay 回退**  

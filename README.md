@@ -36,7 +36,7 @@ Then open `http://127.0.0.1:8080`.
 The web UI now uses a native-first execution model:
 
 1. **Zero-Install native direct estimate**  
-   The page probes `https://mensura.cdn-apple.com/...` with `no-cors`, waits for `PerformanceResourceTiming`, and tries to estimate throughput from timing data. If the browser does not expose `transferSize` / `encodedBodySize`, the page can still estimate speed when the challenge resource size is already known.
+   The page now defaults to a small known-byte probe on `https://mensura.cdn-apple.com/...`, waits for `PerformanceResourceTiming`, and tries to estimate throughput from timing data. If the browser does not expose `transferSize` / `encodedBodySize`, the page can still surface an `Estimated` result because the default challenge size is already known.
 2. **Honest boundary handling**  
    If the resource is too large to download safely in-page, or no usable timing record is exposed, the UI records the limitation explicitly instead of fabricating a direct Mbps result.
 3. **Relay fallback**  
