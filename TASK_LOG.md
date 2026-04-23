@@ -50,4 +50,10 @@
 - [x] ~~**目标:** 为 README 增加中英文切换链接，并补充中文版本说明文档~~ (创建于: 2026-04-21 19:46:39 | **完成于: 2026-04-21 19:47:28**)
   - 更新：`README.md` 顶部增加 `README.zh-CN.md` 入口，保留英文主页作为默认落地页。
   - 新增：`README.zh-CN.md`，提供与英文版对应的中文使用说明，并在顶部反向链接英文版。
-- [ ] **目标:** 通过 GitHub Actions 发布 GHCR 公有镜像，并给出 ClawCloud 可直接使用的镜像地址 (创建于: 2026-04-22 14:07:24)
+- [x] ~~**目标:** 通过 GitHub Actions 发布 GHCR 公有镜像，并给出 ClawCloud 可直接使用的镜像地址~~ (创建于: 2026-04-22 14:07:24 | **完成于: 2026-04-23 12:22:08**)
+  - 已完成：新增 `.github/workflows/publish-ghcr.yml`，推送 `main` 后自动构建并发布 `ghcr.io/zhizhishu/echo-nat-speed:latest`。
+  - 已验证：GitHub Actions 运行 `24763362547` 已成功，GHCR 已存在 `latest` 与 `sha-fb9a8f6` 标签版本。
+  - 处理：已将 GitHub Container Registry 包 `echo-nat-speed` 可见性切换为 `Public`。
+  - 复验：GitHub Packages API 返回 `visibility=public`。
+  - 复验：匿名执行 `docker manifest inspect ghcr.io/zhizhishu/echo-nat-speed:latest` 成功，返回 OCI image index，目标平台为 `linux/amd64`。
+  - 结果：ClawCloud 可直接使用镜像 `ghcr.io/zhizhishu/echo-nat-speed:latest` 部署。
