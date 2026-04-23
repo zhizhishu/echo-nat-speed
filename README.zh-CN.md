@@ -10,8 +10,8 @@
 
 - 浏览器内基于 WebRTC 的 NAT 检测
 - IPv6 与 MTU 检查
-- 当前用户浏览器到当前测速节点的真实下载与上传测速
-- 从 `nxtrace/iNetSpeed-CLI` 迁移进来的一级源码组件 `inetspeed/`，用于 Apple CDN 诊断
+- 由一级源码组件 `inetspeed/` 驱动的 Apple CDN 测速诊断
+- `Web/serve.py` 中保留可选的浏览器测速 API
 
 ## 项目结构
 
@@ -29,9 +29,9 @@ python3 serve.py
 
 然后打开 `http://127.0.0.1:8080`。
 
-网页上的测速按钮测的是当前用户浏览器到当前部署节点的真实流量。内置 `inetspeed/` 组件同时通过 `/api/domestic-speed` 提供服务端 Apple CDN 诊断能力。
+网页上的测速按钮现在直接调用 `/api/domestic-speed`，展示内置 `inetspeed/` 自动选中的 Apple CDN 节点。
 
-注意：浏览器不能指定 Apple CDN 候选 IP，也不能在 Apple 未开放 CORS 的情况下读取测速响应体。因此 `inetspeed/` 诊断会明确保留为服务端诊断，不混入浏览器测速结果。
+`/api/browser-speed/*` 浏览器测速接口仍然保留在后端，但不再作为网页主测速入口。
 
 ## 使用 Docker 运行
 

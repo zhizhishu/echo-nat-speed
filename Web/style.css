@@ -264,6 +264,59 @@ h1 {
   font-variant-numeric: tabular-nums;
 }
 
+.speed-dual-value {
+  display: inline-flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.speed-lane {
+  min-width: 176px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(0, 122, 255, 0.12);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 247, 252, 0.92));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.speed-lane-download {
+  border-color: rgba(0, 122, 255, 0.18);
+}
+
+.speed-lane-upload {
+  border-color: rgba(255, 149, 0, 0.18);
+}
+
+.speed-lane-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.speed-lane-number {
+  display: block;
+  margin-top: 6px;
+  font-size: clamp(32px, 4vw, 42px);
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: -1.2px;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.speed-lane-unit {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
 .speed-main-label {
   margin-top: 8px;
   color: var(--text-secondary);

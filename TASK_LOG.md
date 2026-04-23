@@ -103,3 +103,13 @@
   - 验证：本地启动 `ECHO_NAT_PORT=8096 python3 Web/serve.py`，`/api/health` 返回 `commandMode=repo` 且 `commandSource` 指向 `inetspeed/`。
   - 验证：`POST /api/domestic-speed` 成功通过内置 `inetspeed/` 执行 Apple CDN 诊断并返回 JSON。
   - 注意：本机 Docker daemon 未运行，`docker build -t echo-nat-speed:test .` 暂无法执行，错误为无法连接 Docker socket。
+- [x] ~~**目标:** 将网页测速入口切换为内置 inetspeed Apple CDN 诊断并优化速度结果视觉展示~~ (创建于: 2026-04-23 15:38:16 | **完成于: 2026-04-23 15:51:07**)
+  - 更新：`Web/index.html` 将单线程/多线程按钮明确改为 Apple CDN 单线程/多线程测速，并把测速卡文案改为内置 `inetspeed` 语义。
+  - 更新：`Web/app.js` 将网页测速主入口切换到 `/api/domestic-speed`，结果区展示 `inetspeed` 自动选中的 Apple CDN 节点 IP 和选点来源。
+  - 更新：`Web/app.js` 把主速度数值改为下载 / 上传双栏大数字，不再显示 `116.7↓ / 7.0↑ Mbps` 这类串联格式。
+  - 更新：`Web/style.css` 新增双栏速度视觉块样式，强化主结果可读性。
+  - 更新：`README.md` 与 `README.zh-CN.md`，同步主测速入口改为 Apple CDN 诊断的实际行为。
+  - 验证：`node --check Web/app.js`
+  - 验证：`python3 -m py_compile Web/serve.py`
+  - 验证：本地启动 `ECHO_NAT_PORT=8097 python3 Web/serve.py`，Chrome 页面点击 `Apple 单线程测速` 后发出 `POST /api/domestic-speed`。
+  - 验证：页面结果卡显示 Apple CDN 节点 IP `113.96.136.166`，不再显示 ClawCloud 域名。
