@@ -269,7 +269,7 @@
   - 更新：`TASK_LOG.md` 已补记最终交付目标，并在交付完成后写回完成时间。
   - 清理：移除未纳入当前评审规则的本地 `BrowserExtension/` 目录，避免与“纯净 Chrome / 无插件”最终路径冲突。
   - 提交：`3e66cf6` `feat: implement native direct speed estimate via Resource Timing side-channel`
-  - 推送：`origin/main` 已成功更新到 `3e66cf6`。
+  - 推送：`origin/main` 已成功更新，包含功能提交与最终交付日志。
   - 验证：`node --check Web/app.js`
   - 验证：`python3 -m py_compile Web/serve.py`
   - 验证：`cd inetspeed && go test ./...`
