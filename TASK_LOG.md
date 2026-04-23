@@ -283,5 +283,15 @@
   - 验证：`cd inetspeed && go test ./...`
   - 验证：Chrome CDP 打开默认页 `http://127.0.0.1:8131/` 并点击 `Apple 单线程测速` 后，页面最终状态为 `已完成 · Estimated`，主结果为 `<0.1 Mbps`，日志显示 `默认探针 small / 1B known-byte`，且未触发 `[FALLBACK_SINK]`。
 ## 目标清单（原生单双线程强制估算）
-- [ ] **目标:** 强制实现 Apple 单线程 / 多线程都走原生侧信道估算，并仅在原生估算失败时才回退 Relay (创建于: 2026-04-24 00:24:02)
+- [x] ~~**目标:** 强制实现 Apple 单线程 / 多线程都走原生侧信道估算，并仅在原生估算失败时才回退 Relay~~ (创建于: 2026-04-24 00:24:02 | **完成于: 2026-04-24 00:31:38**)
+  - 更新：`Web/app.js` 将原生路径扩展为真正的单双线程估算：下载按 `mode.concurrency` 并发执行 `small` known-byte `no-cors` probe，上传按 `mode.concurrency` 并发执行原生 `POST no-cors` 到 `slurp`，只有原生估算失败时才回退 Relay。
+  - 更新：`Web/app.js` 新增原生下载/上传聚合统计、模式化日志、原生上传 payload 缓存，以及 `Estimated` 结果态下的上下行双值展示。
+  - 更新：`Web/index.html`、`README.md`、`README.zh-CN.md` 同步说明“单线程 / 多线程都会先执行原生下载 small probe + 原生 POST 上传估算”的最终行为。
+  - 提交：`34361a2` `feat: force native estimates for single and multi modes`
+  - 验证：`node --check Web/app.js`
+  - 验证：`python3 -m py_compile Web/serve.py`
+  - 验证：`cd inetspeed && go test ./...`
+  - 验证：Chrome CDP 打开默认页 `http://127.0.0.1:8132/` 并点击 `Apple 单线程测速` 后，页面状态为 `已完成 · Estimated`，显示原生下载 `<0.1 Mbps`、原生上传 `34.2 Mbps`，且未触发 `[FALLBACK_SINK]`。
+  - 验证：Chrome CDP 在同页点击 `Apple 多线程测速` 后，页面状态为 `已完成 · Estimated`，显示原生下载 `<0.1 Mbps`、原生上传 `20.5 Mbps`，且未触发 `[FALLBACK_SINK]`。
 
+[Project Finalized: All Objectives Completed] - 2026-04-23
