@@ -281,17 +281,53 @@ h1 {
   word-break: break-word;
 }
 
-.speed-metrics .detail-value {
-  font-variant-numeric: tabular-nums;
-}
-
 .speed-metrics {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-top: 28px;
   padding-top: 28px;
   border-top: 1px solid var(--border);
+}
+
+.speed-metric {
+  min-height: 116px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 247, 250, 0.88));
+  border: 1px solid rgba(0, 122, 255, 0.09);
+  text-align: left;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.speed-metric-label {
+  display: block;
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.speed-metric-value {
+  display: block;
+  margin-top: 10px;
+  font-size: 24px;
+  line-height: 1.1;
+  font-weight: 800;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+.speed-metric-wide {
+  grid-column: span 3;
+  min-height: auto;
+}
+
+.speed-metric-endpoint {
+  font-size: 18px;
 }
 
 .speed-hint-box {
@@ -384,5 +420,6 @@ footer {
   .cards-row { grid-template-columns: 1fr; }
   .nat-grid { grid-template-columns: 1fr; }
   .nat-details { grid-template-columns: 1fr; gap: 20px; }
-  .speed-metrics { grid-template-columns: 1fr 1fr; }
+  .speed-metrics { grid-template-columns: 1fr; }
+  .speed-metric-wide { grid-column: auto; }
 }

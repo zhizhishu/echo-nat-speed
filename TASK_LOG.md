@@ -65,3 +65,12 @@
   - 验证：`python3 -m py_compile Web/serve.py`
   - 验证：本地启动 `ECHO_NAT_PORT=8091 python3 Web/serve.py`，实测 `GET /api/browser-speed/ping`、`GET /api/browser-speed/download?bytes=1048576`、`POST /api/browser-speed/upload` 全部成功。
   - 验证：浏览器实跑页面，`浏览器测速` 完成后显示目标节点为 `127.0.0.1:8091`，日志中出现真实下载、上传与延迟结果。
+- [x] ~~**目标:** 按 speedtest 风格补齐浏览器测速：分离 NAT/测速按钮、展示单线程/多线程、空载/负载延迟、抖动并完成结果校验~~ (创建于: 2026-04-23 13:06:20 | **完成于: 2026-04-23 13:27:46**)
+  - 更新：`Web/index.html` 将测速结果区改为标准指标板，独立展示下载/上传标准值、单线程参考值、空载延迟、下载负载延迟、上传负载延迟、抖动和测速节点。
+  - 更新：`Web/app.js` 重构浏览器测速流程为预热、空载延迟、单线程下载、多线程下载、单线程上传、多线程上传六阶段，并以多线程聚合作为标准测速结果。
+  - 更新：`Web/serve.py` 修复并发下载时的流式写回背压问题，避免浏览器在多线程测速阶段出现 `ERR_CONTENT_LENGTH_MISMATCH`。
+  - 更新：`Web/style.css` 为测速指标板新增卡片布局，提升多指标同时展示的可读性。
+  - 验证：`node --check Web/app.js`
+  - 验证：`python3 -m py_compile Web/serve.py`
+  - 验证：本地启动 `ECHO_NAT_PORT=8092 python3 Web/serve.py`，实测 `GET /api/browser-speed/ping`、`GET /api/browser-speed/download?bytes=1048576`、`POST /api/browser-speed/upload` 全部成功。
+  - 验证：Chrome DevTools 打开 `http://127.0.0.1:8092`，点击“浏览器测速”后页面成功完成整套测速流程，并显示单线程、多线程、负载延迟与抖动指标。

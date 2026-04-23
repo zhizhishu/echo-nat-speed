@@ -110,29 +110,55 @@
 
       <div class="speed-overview">
         <div class="spinner" id="speedSpinner" style="display:none;"></div>
-        <div class="speed-main-value" id="speedDownload">-- Mbps</div>
-        <div class="speed-main-label" id="speedSummary">通过当前浏览器向当前部署节点发起真实下载与上传流量，结果会占用你本地的实际网络带宽。</div>
+        <div class="speed-main-value" id="speedMainValue">-- Mbps</div>
+        <div class="speed-main-label" id="speedSummary">通过当前浏览器向当前部署节点发起真实下载与上传流量，标准结果默认以多线程测速为主，单线程与负载延迟作为参考。</div>
       </div>
 
       <div class="speed-metrics" id="speedMetrics">
-        <div class="detail-row">
-          <span class="detail-label">下载结果</span>
-          <span class="detail-value" id="speedDownloadDetail">-</span>
+        <div class="speed-metric">
+          <span class="speed-metric-label">下载标准值</span>
+          <span class="speed-metric-value" id="speedDownloadMulti">-</span>
+          <span class="metric-detail" id="speedDownloadMultiDetail">多线程聚合结果</span>
         </div>
-        <div class="detail-row">
-          <span class="detail-label">上传结果</span>
-          <span class="detail-value" id="speedUpload">-</span>
-          <span class="metric-detail" id="speedUploadDetail"></span>
+        <div class="speed-metric">
+          <span class="speed-metric-label">下载单线程</span>
+          <span class="speed-metric-value" id="speedDownloadSingle">-</span>
+          <span class="metric-detail" id="speedDownloadSingleDetail">单连接参考值</span>
         </div>
-        <div class="detail-row">
-          <span class="detail-label">往返延迟</span>
-          <span class="detail-value" id="speedIdleLatency">-</span>
-          <span class="metric-detail" id="speedIdleLatencyDetail"></span>
+        <div class="speed-metric">
+          <span class="speed-metric-label">上传标准值</span>
+          <span class="speed-metric-value" id="speedUploadMulti">-</span>
+          <span class="metric-detail" id="speedUploadMultiDetail">多线程聚合结果</span>
         </div>
-        <div class="detail-row">
-          <span class="detail-label">测速节点</span>
-          <span class="detail-value" id="speedEndpoint">-</span>
-          <span class="metric-detail" id="speedEndpointDetail"></span>
+        <div class="speed-metric">
+          <span class="speed-metric-label">上传单线程</span>
+          <span class="speed-metric-value" id="speedUploadSingle">-</span>
+          <span class="metric-detail" id="speedUploadSingleDetail">单连接参考值</span>
+        </div>
+        <div class="speed-metric">
+          <span class="speed-metric-label">空载延迟</span>
+          <span class="speed-metric-value" id="speedLatencyIdle">-</span>
+          <span class="metric-detail" id="speedLatencyIdleDetail">测速前基线</span>
+        </div>
+        <div class="speed-metric">
+          <span class="speed-metric-label">下载负载延迟</span>
+          <span class="speed-metric-value" id="speedLatencyDownload">-</span>
+          <span class="metric-detail" id="speedLatencyDownloadDetail">多线程下载阶段同步采样</span>
+        </div>
+        <div class="speed-metric">
+          <span class="speed-metric-label">上传负载延迟</span>
+          <span class="speed-metric-value" id="speedLatencyUpload">-</span>
+          <span class="metric-detail" id="speedLatencyUploadDetail">多线程上传阶段同步采样</span>
+        </div>
+        <div class="speed-metric">
+          <span class="speed-metric-label">抖动</span>
+          <span class="speed-metric-value" id="speedJitter">-</span>
+          <span class="metric-detail" id="speedJitterDetail">空载延迟波动</span>
+        </div>
+        <div class="speed-metric speed-metric-wide">
+          <span class="speed-metric-label">测速节点</span>
+          <span class="speed-metric-value speed-metric-endpoint" id="speedEndpoint">-</span>
+          <span class="metric-detail" id="speedEndpointDetail">当前用户浏览器 → 当前部署节点</span>
         </div>
       </div>
 

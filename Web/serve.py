@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import errno
 import json
 import os
 import shlex
@@ -10,7 +11,7 @@ import sys
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from time import perf_counter, time
+from time import perf_counter, sleep, time
 from urllib.parse import parse_qs, urlparse
 
 
@@ -23,7 +24,9 @@ DEFAULT_BROWSER_DOWNLOAD_BYTES = 32 * 1024 * 1024
 MIN_BROWSER_DOWNLOAD_BYTES = 1 * 1024 * 1024
 MAX_BROWSER_DOWNLOAD_BYTES = 128 * 1024 * 1024
 MAX_BROWSER_UPLOAD_BYTES = 64 * 1024 * 1024
-STREAM_CHUNK = os.urandom(64 * 1024)
+STREAM_CHUNK = os.urandom(16 * 1024)
+STREAM_BACKPRESSURE_RETRIES = 24
+STREAM_BACKPRESSURE_SLEEP = 0.002
 
 
 def candidate_repo_paths() -> list[Path]:
@@ -165,6 +168,22 @@ def clamp_int(raw_value: str | None, default: int, minimum: int, maximum: int) -
     return max(minimum, min(value, maximum))
 
 
+def write_stream_chunk(handler: SimpleHTTPRequestHandler, chunk: bytes) -> bool:
+    retries = 0
+    while True:
+        try:
+            handler.wfile.write(chunk)
+            return True
+        except (BrokenPipeError, ConnectionResetError):
+            return False
+        except OSError as exc:
+            if exc.errno in (errno.ENOBUFS, errno.EAGAIN, errno.EWOULDBLOCK) and retries < STREAM_BACKPRESSURE_RETRIES:
+                retries += 1
+                sleep(STREAM_BACKPRESSURE_SLEEP)
+                continue
+            return False
+
+
 def run_domestic_speed(payload: dict[str, object]) -> dict[str, object]:
     base_cmd, cwd, source = resolve_cli_command()
     cmd = [*base_cmd, *build_speedtest_args(payload)]
@@ -293,13 +312,11 @@ class EchoHandler(SimpleHTTPRequestHandler):
             )
             self.send_binary_headers(requested_bytes)
             remaining = requested_bytes
-            try:
-                while remaining > 0:
-                    chunk_size = min(remaining, len(STREAM_CHUNK))
-                    self.wfile.write(STREAM_CHUNK[:chunk_size])
-                    remaining -= chunk_size
-            except (BrokenPipeError, ConnectionResetError):
-                return
+            while remaining > 0:
+                chunk_size = min(remaining, len(STREAM_CHUNK))
+                if not write_stream_chunk(self, STREAM_CHUNK[:chunk_size]):
+                    return
+                remaining -= chunk_size
             return
 
         super().do_GET()
