@@ -264,4 +264,14 @@
   - 结论：当前原生实现的最高诚信能力为——可通过 Resource Timing 对“已知固定大小、且页面允许完整 no-cors 下载”的挑战资源做下载侧信道估算；对默认 `large` 资源，由于已知大小过大，页面会明确记录边界并回退，不伪造直连 Mbps。
 
 ## 目标清单（最终交付）
-- [ ] **目标:** 完成 Project 'Apple-Siphon' 最终交付、文档定稿并推送 GitHub `main` 分支 (创建于: 2026-04-23 23:17:25)
+- [x] ~~**目标:** 完成 Project 'Apple-Siphon' 最终交付、文档定稿并推送 GitHub `main` 分支~~ (创建于: 2026-04-23 23:17:25 | **完成于: 2026-04-23 23:19:58**)
+  - 更新：`README.md` 与 `README.zh-CN.md` 已同步改写为 Zero-Install 原生直连侧信道 + Relay 回退的最终交付语义，并写入“通过 `Timing Side-Channel` 突破浏览器 `SOP` 限制，实现原生端到端带宽估算的工程实践”。
+  - 更新：`TASK_LOG.md` 已补记最终交付目标，并在交付完成后写回完成时间。
+  - 清理：移除未纳入当前评审规则的本地 `BrowserExtension/` 目录，避免与“纯净 Chrome / 无插件”最终路径冲突。
+  - 提交：`3e66cf6` `feat: implement native direct speed estimate via Resource Timing side-channel`
+  - 推送：`origin/main` 已成功更新到 `3e66cf6`。
+  - 验证：`node --check Web/app.js`
+  - 验证：`python3 -m py_compile Web/serve.py`
+  - 验证：`cd inetspeed && go test ./...`
+
+[Project Finalized: All Objectives Completed] - 2026-04-23
