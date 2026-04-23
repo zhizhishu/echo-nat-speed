@@ -30,7 +30,7 @@
   <!-- Hero -->
   <section class="hero" id="detect">
     <h1>在线检测 <span class="gradient-text">NAT 类型</span></h1>
-    <p class="subtitle">基于 WebRTC STUN 与 Apple CDN 浏览器测速链路，识别当前网络 NAT 状态，并给出当前用户真实发起的 Apple 单线程 / 多线程测速结果。</p>
+    <p class="subtitle">基于 WebRTC STUN 与 Apple 浏览器测速链路识别当前网络 NAT 状态；测速主路径为 Zero-Install 原生浏览器边界审计，若标准浏览器无法给出可信直连指标，则回退 Apple CDN 中继模式。</p>
     <div class="hero-actions">
       <button id="startBtn" class="btn-primary" onclick="startDetection()">
         开始 NAT 检测
@@ -107,14 +107,14 @@
   <section class="result-section speed-result-section" id="speedResultSection" style="display:none;">
     <div class="card card-main speed-card" id="speedCard">
       <div class="card-header">
-        <span class="card-tag" id="speedCardTag">Apple CDN 浏览器测速</span>
+        <span class="card-tag" id="speedCardTag">Zero-Install 原生直连审计</span>
         <span class="card-status" id="speedStatus">等待测试</span>
       </div>
 
       <div class="speed-overview">
         <div class="spinner" id="speedSpinner" style="display:none;"></div>
         <div class="speed-main-value" id="speedMainValue">-- Mbps</div>
-        <div class="speed-main-label" id="speedSummary">请选择 Apple 单线程或多线程测速</div>
+        <div class="speed-main-label" id="speedSummary">原生直连先做浏览器安全边界审计；如无法可信量化则回退 Relay</div>
       </div>
 
       <div class="speed-metrics" id="speedMetrics">
@@ -167,7 +167,7 @@
 
       <div class="speed-hint-box" id="speedHintBox">
         <div class="speed-hint-title">提示信息</div>
-        <div class="speed-hint-text" id="speedHintText">测速流量由当前浏览器发起，Apple CDN 节点会先自动选点。</div>
+        <div class="speed-hint-text" id="speedHintText">当前模式不依赖任何插件。页面会先执行 Zero-Install 原生浏览器边界审计，只有在未获得可信直连结果时才回退 Apple CDN Relay。</div>
       </div>
     </div>
 

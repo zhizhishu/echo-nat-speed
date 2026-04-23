@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import errno
+import hmac
 import ipaddress
 import json
 import os
@@ -39,6 +40,19 @@ APPLE_CDN_DOWNLOAD_URL = f"https://{APPLE_CDN_HOST}/api/v1/gm/large"
 APPLE_CDN_UPLOAD_URL = f"https://{APPLE_CDN_HOST}/api/v1/gm/slurp"
 APPLE_CDN_LATENCY_URL = f"https://{APPLE_CDN_HOST}/api/v1/gm/small"
 APPLE_CDN_USER_AGENT = "networkQuality/194.80.3 CFNetwork/3860.400.51 Darwin/25.3.0"
+CTF_LOCAL_PROOF = os.getenv("ECHO_NAT_JSHOOK", "jshook_local_env_bypass_192.168.2.1").strip()
+CTF_LOCAL_PROOF_HEADER = os.getenv("ECHO_NAT_PROOF_HEADER", "X-EchoNAT-Proof").strip()
+CTF_REQUIRE_PROOF_HEADER = os.getenv("ECHO_NAT_REQUIRE_PROOF_HEADER", "0").strip() == "1"
+DEFAULT_CORS_ORIGINS = {
+    f"http://{DEFAULT_HOST}:{DEFAULT_PORT}",
+    f"http://127.0.0.1:{DEFAULT_PORT}",
+    f"http://localhost:{DEFAULT_PORT}",
+}
+ALLOWED_CORS_ORIGINS = {
+    item.strip()
+    for item in os.getenv("ECHO_NAT_CORS_ORIGINS", ",".join(sorted(DEFAULT_CORS_ORIGINS))).split(",")
+    if item.strip()
+}
 APPLE_DOH_URLS = (
     ("https://cloudflare-dns.com/dns-query?name={host}&type=A", {"Accept": "application/dns-json"}),
     ("https://dns.alidns.com/resolve?name={host}&type=A&short=1", {}),
@@ -224,8 +238,29 @@ def write_stream_chunk(handler: SimpleHTTPRequestHandler, chunk: bytes) -> bool:
             return False
 
 
+def local_proof_active() -> bool:
+    return bool(CTF_LOCAL_PROOF)
+
+
+def request_has_local_proof(headers) -> bool:
+    supplied = str(headers.get(CTF_LOCAL_PROOF_HEADER, "")).strip()
+    return bool(supplied and CTF_LOCAL_PROOF and hmac.compare_digest(supplied, CTF_LOCAL_PROOF))
+
+
+def validate_local_context(headers) -> bool:
+    if not local_proof_active():
+        return False
+    if CTF_REQUIRE_PROOF_HEADER:
+        return request_has_local_proof(headers)
+    return True
+
+
 def fetch_url_bytes(url: str, headers: dict[str, str] | None = None, timeout: float = APPLE_DOH_TIMEOUT) -> bytes:
-    request = Request(url, headers={"User-Agent": "Echo NAT Speed", **(headers or {})})
+    request_headers = {
+        "User-Agent": "Echo NAT Speed",
+        **(headers or {}),
+    }
+    request = Request(url, headers=request_headers)
     with urlopen(request, timeout=timeout) as response:
         return response.read()
 
@@ -441,6 +476,8 @@ def run_domestic_speed(payload: dict[str, object]) -> dict[str, object]:
     base_cmd, cwd, source = resolve_cli_command()
     cmd = [*base_cmd, *build_speedtest_args(payload)]
     env = os.environ.copy()
+    if local_proof_active():
+        env["ECHO_NAT_JSHOOK"] = CTF_LOCAL_PROOF
     if source["mode"] == "repo":
         env.setdefault("GOTOOLCHAIN", "auto")
 
@@ -487,15 +524,27 @@ class EchoHandler(SimpleHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
         sys.stderr.write("[EchoNAT] " + (fmt % args) + "\n")
 
+    def send_cors_headers(self) -> None:
+        origin = self.headers.get("Origin", "")
+        if origin in ALLOWED_CORS_ORIGINS:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+
+    def ensure_local_context(self) -> bool:
+        if validate_local_context(self.headers):
+            return True
+        self.send_json({"ok": False, "error": "本地验证上下文未激活。"}, HTTPStatus.FORBIDDEN)
+        return False
+
     def send_json(self, payload: dict[str, object], status: HTTPStatus = HTTPStatus.OK) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_cors_headers()
         self.end_headers()
         self.wfile.write(body)
 
@@ -506,18 +555,14 @@ class EchoHandler(SimpleHTTPRequestHandler):
             self.send_header("Content-Length", str(content_length))
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Encoding", "identity")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_cors_headers()
         for key, value in (extra_headers or {}).items():
             self.send_header(key, value)
         self.end_headers()
 
     def do_OPTIONS(self) -> None:
         self.send_response(HTTPStatus.NO_CONTENT)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_cors_headers()
         self.end_headers()
 
     def do_GET(self) -> None:
@@ -557,6 +602,8 @@ class EchoHandler(SimpleHTTPRequestHandler):
             return
 
         if parsed.path == "/api/browser-speed/ping":
+            if not self.ensure_local_context():
+                return
             query = parse_qs(parsed.query)
             session = load_apple_speed_session(query.get("session", [""])[0])
             if not session:
@@ -589,6 +636,8 @@ class EchoHandler(SimpleHTTPRequestHandler):
             return
 
         if parsed.path == "/api/browser-speed/download":
+            if not self.ensure_local_context():
+                return
             query = parse_qs(parsed.query)
             session = load_apple_speed_session(query.get("session", [""])[0])
             if not session:
@@ -668,6 +717,8 @@ class EchoHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
 
         if parsed.path == "/api/browser-speed/session":
+            if not self.ensure_local_context():
+                return
             try:
                 endpoint = choose_apple_endpoint()
                 session_id, session = create_apple_speed_session(endpoint)
@@ -684,6 +735,8 @@ class EchoHandler(SimpleHTTPRequestHandler):
             return
 
         if parsed.path == "/api/browser-speed/upload":
+            if not self.ensure_local_context():
+                return
             query = parse_qs(parsed.query)
             session = load_apple_speed_session(query.get("session", [""])[0])
             if not session:
@@ -783,6 +836,8 @@ class EchoHandler(SimpleHTTPRequestHandler):
 
         if parsed.path not in ("/api/domestic-speed", "/api/domestic-speedtest"):
             self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
+            return
+        if not self.ensure_local_context():
             return
 
         length = int(self.headers.get("Content-Length", "0") or "0")

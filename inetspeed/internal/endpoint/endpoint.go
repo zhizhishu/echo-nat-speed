@@ -19,6 +19,7 @@ import (
 
 	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/config"
 	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/i18n"
+	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/jshook"
 	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/netx"
 	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/render"
 )
@@ -267,6 +268,7 @@ func queryCFDoH(ctx context.Context, host string, urlTemplate string) dohResult 
 	}
 	req.Header.Set("Accept", "application/dns-json")
 	req.Header.Set("User-Agent", "iNetSpeed-CLI")
+	jshook.Apply(req)
 
 	resp, err := dohHTTPClient.Do(req)
 	if err != nil {
@@ -293,6 +295,7 @@ func queryAliDoH(ctx context.Context, host string, urlTemplate string) dohResult
 		return dohResult{err: err}
 	}
 	req.Header.Set("User-Agent", "iNetSpeed-CLI")
+	jshook.Apply(req)
 
 	resp, err := dohHTTPClient.Do(req)
 	if err != nil {
@@ -472,6 +475,7 @@ func doFetchIPDesc(ctx context.Context, ip string) (string, error) {
 		return "", err
 	}
 	req.Header.Set("User-Agent", "iNetSpeed-CLI")
+	jshook.Apply(req)
 	resp, err := metadataHTTPClient.Do(req)
 	if err != nil {
 		return "", err
@@ -528,6 +532,7 @@ func doFetchInfo(ctx context.Context, target string) (IPInfo, error) {
 		return IPInfo{}, err
 	}
 	req.Header.Set("User-Agent", "iNetSpeed-CLI")
+	jshook.Apply(req)
 	resp, err := metadataHTTPClient.Do(req)
 	if err != nil {
 		return IPInfo{}, err
@@ -567,6 +572,7 @@ func probeEndpoint(ctx context.Context, host, probeURL, ip string) (float64, err
 	req.Header.Set("User-Agent", config.UserAgent)
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("Accept-Encoding", "identity")
+	jshook.Apply(req)
 
 	start := time.Now()
 	resp, err := client.Do(req)

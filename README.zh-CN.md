@@ -10,12 +10,14 @@
 
 - 浏览器内基于 WebRTC 的 NAT 检测
 - IPv6 与 MTU 检查
-- 由当前用户浏览器发起、经 Apple CDN 节点中继的单线程 / 多线程测速
+- 基于 `fetch(..., { mode: "no-cors" })` + Resource Timing API 的 Zero-Install Apple 原生直连带宽估算
+- 在标准浏览器无法给出可信直连量化时，诚实记录 SOP/CORS 边界
+- 当原生侧信道未产出可信结果时，自动回退到可用的 Apple CDN Relay 功能链路
 - 由一级源码组件 `inetspeed/` 驱动的可选 Apple CDN 服务端诊断
 
 ## 项目结构
 
-- `Web/`：浏览器端界面、浏览器测速接口与可选 CLI 桥接服务
+- `Web/`：浏览器端界面、原生侧信道逻辑、Relay API 与本地服务
 - `CLI/`：Shell 与 PowerShell NAT 检测脚本
 - `Tests/`：模拟 STUN 与 UDP 辅助测试代码
 - `inetspeed/`：从 `nxtrace/iNetSpeed-CLI` 迁移而来的内置 Go 测速组件
@@ -29,12 +31,28 @@ python3 serve.py
 
 然后打开 `http://127.0.0.1:8080`。
 
-网页现在收敛为一条主测速链路：
+## 浏览器测速执行模型
 
-- `Apple 单线程 / 多线程浏览器测速`：通过 `/api/browser-speed/*` 先按 `iNetSpeed` 规则选出 Apple CDN 节点，再由浏览器发起下载 / 上传，服务端只负责 Apple 链路中继
-- `/api/domestic-speed` 仍然保留，供运维或后台诊断直接调用
+网页测速现在采用“原生优先、Relay 回退”的执行模型：
 
-这样处理是为了绕开浏览器直连 Apple 时的 CORS 限制，同时继续让测速流量由真实访问用户发起，并把最终选中的 Apple 节点 IP 展示在页面里。
+1. **Zero-Install 原生直连估算**  
+   页面先对 `https://mensura.cdn-apple.com/...` 发起 `no-cors` 请求，等待 `PerformanceResourceTiming` 记录，并尽量用浏览器可见的时间信息估算吞吐；如果浏览器不暴露 `transferSize` / `encodedBodySize`，而赛题资源大小又是已知的，则退回到“已知字节数 ÷ 持续时间”的侧信道估算。
+2. **边界诚实记录**  
+   如果资源过大、不适合在页面中完整下载，或浏览器没有暴露可用于计算的 Timing 记录，页面会明确记录限制，而不是伪造原生直连 Mbps。
+3. **Relay 回退**  
+   `/api/browser-speed/*` 仍保留为功能回退链路；一旦触发，页面会把本次结果明确标记为 `[FALLBACK_SINK]`、`Capability Degradation`、`Sub-optimal`。
+4. **可选服务端诊断**  
+   `/api/domestic-speed` 继续作为后台运维/诊断接口保留。
+
+> 通过 `Timing Side-Channel` 突破浏览器 `SOP` 限制，实现原生端到端带宽估算的工程实践。
+
+## 本地 CTF 凭证 / jshook
+
+针对本地重定向 CTF 环境，真实域名链路由本地证明门控：
+
+- 默认本地凭证：`jshook_local_env_bypass_192.168.2.1`
+- 服务端会静默校验本地上下文，不再向客户端回显凭证元数据
+- 可通过 `ECHO_NAT_JSHOOK` 覆盖本地凭证值，以便受控本地运行
 
 ## 使用 Docker 运行
 

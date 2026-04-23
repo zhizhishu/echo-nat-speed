@@ -12,6 +12,7 @@ import (
 
 	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/config"
 	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/i18n"
+	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/jshook"
 	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/render"
 )
 
@@ -128,6 +129,7 @@ func doDownload(ctx context.Context, client *http.Client, url string, maxBytes i
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("Accept-Language", "zh-CN,zh-Hans;q=0.9")
 	req.Header.Set("Accept-Encoding", "identity")
+	jshook.Apply(req)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -216,6 +218,7 @@ func doUpload(ctx context.Context, client *http.Client, url string, maxBytes int
 	req.Header.Set("Accept-Encoding", "identity")
 	req.Header.Set("Upload-Draft-Interop-Version", "6")
 	req.Header.Set("Upload-Complete", "?1")
+	jshook.Apply(req)
 
 	resp, err := client.Do(req)
 	if err != nil {

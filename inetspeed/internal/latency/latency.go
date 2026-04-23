@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/config"
+	"github.com/zhizhishu/echo-nat-speed/inetspeed/internal/jshook"
 )
 
 type Stats struct {
@@ -93,6 +94,7 @@ func probe(ctx context.Context, client *http.Client, url string) float64 {
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("Accept-Language", "zh-CN,zh-Hans;q=0.9")
 	req.Header.Set("Accept-Encoding", "identity")
+	jshook.Apply(req)
 
 	start := time.Now()
 	resp, err := client.Do(req)
