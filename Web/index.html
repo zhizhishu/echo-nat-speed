@@ -30,7 +30,7 @@
   <!-- Hero -->
   <section class="hero" id="detect">
     <h1>在线检测 <span class="gradient-text">NAT 类型</span></h1>
-    <p class="subtitle">基于 WebRTC STUN 与 Apple 浏览器测速链路识别当前网络 NAT 状态；测速主路径为 Zero-Install 原生浏览器边界审计，默认先跑已知大小的 small probe 以展示原生 Estimated；若标准浏览器仍无法给出可信直连指标，则回退 Apple CDN 中继模式。</p>
+    <p class="subtitle">基于 WebRTC STUN 与 Apple 浏览器测速链路识别当前网络 NAT 状态；测速主路径为 Zero-Install 原生浏览器边界审计，默认先跑已知大小的 small probe 做下载估算，并继续执行原生 POST 上传估算；若标准浏览器仍无法给出可信直连指标，则回退 Apple CDN 中继模式。</p>
     <div class="hero-actions">
       <button id="startBtn" class="btn-primary" onclick="startDetection()">
         开始 NAT 检测
@@ -114,7 +114,7 @@
       <div class="speed-overview">
         <div class="spinner" id="speedSpinner" style="display:none;"></div>
         <div class="speed-main-value" id="speedMainValue">-- Mbps</div>
-        <div class="speed-main-label" id="speedSummary">原生直连默认先做 small probe 侧信道估算；如仍无法可信量化则回退 Relay</div>
+        <div class="speed-main-label" id="speedSummary">原生直连默认先做 small probe 下载估算，并继续做 POST 上传估算；如仍无法可信量化则回退 Relay</div>
       </div>
 
       <div class="speed-metrics" id="speedMetrics">
@@ -167,7 +167,7 @@
 
       <div class="speed-hint-box" id="speedHintBox">
         <div class="speed-hint-title">提示信息</div>
-        <div class="speed-hint-text" id="speedHintText">当前模式不依赖任何插件。页面会先执行 Zero-Install 原生 small probe / Resource Timing 审计；只有在未获得可信直连结果时才回退 Apple CDN Relay。</div>
+        <div class="speed-hint-text" id="speedHintText">当前模式不依赖任何插件。页面会先执行 Zero-Install 原生 small probe / Resource Timing 下载审计，并继续执行原生 POST 上传估算；只有在未获得可信直连结果时才回退 Apple CDN Relay。</div>
       </div>
     </div>
 

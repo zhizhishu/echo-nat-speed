@@ -20,6 +20,7 @@ const BROWSER_SPEED_UPLOAD_API = `${BROWSER_SPEED_BASE}/upload`;
 const APPLE_DIRECT_HOST = 'mensura.cdn-apple.com';
 const APPLE_DIRECT_BASE = `https://${APPLE_DIRECT_HOST}/api/v1/gm`;
 const APPLE_DIRECT_RTT_URL = `${APPLE_DIRECT_BASE}/small`;
+const APPLE_DIRECT_UPLOAD_URL = `${APPLE_DIRECT_BASE}/slurp`;
 const APPLE_DIRECT_LARGE_DOWNLOAD_URL = `${APPLE_DIRECT_BASE}/large`;
 const APPLE_DIRECT_NATIVE_PROBE_URL = APPLE_DIRECT_RTT_URL;
 const LATENCY_SAMPLE_COUNT = 7;
@@ -39,6 +40,7 @@ const NATIVE_DIRECT_MAX_COMPLETE_BYTES = 64 * 1024 * 1024;
 const DEFAULT_NATIVE_PROBE_KNOWN_BYTES = 1;
 
 const uploadPayloadCache = new Map();
+const nativeUploadPayloadCache = new Map();
 const speedRuntime = {
   sessionId: '',
   source: 'native',
@@ -52,7 +54,7 @@ const SPEED_SOURCE_META = {
     logLabel: '原生直连',
     idleDetail: '原生浏览器空载 RTT（Resource Timing）',
     downloadLatencyDetail: '下载侧信道估算（Resource Timing）',
-    uploadLatencyDetail: '上传边界（未纳入本次侧信道估算）',
+    uploadLatencyDetail: '上传侧信道估算（POST no-cors）',
     jitterDetail: '浏览器侧延迟波动',
     endpointLabel: () => speedRuntime.endpoint || 'mensura.cdn-apple.com',
     endpointDetail: () => speedRuntime.endpointDetail || '纯净 Chrome / 无插件 / 不修改配置',
@@ -265,6 +267,19 @@ function formatBytesMiB(value) {
   return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
+function formatBytesAdaptive(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return '-';
+  }
+  if (value < 1024) {
+    return `${Math.round(value)} B`;
+  }
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)} KiB`;
+  }
+  return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
 function average(values) {
   if (!Array.isArray(values) || values.length === 0) {
     return null;
@@ -330,7 +345,13 @@ function formatDualSpeed(downloadMbps, uploadMbps) {
 }
 
 function speedValueNumber(value) {
-  return Number.isFinite(value) ? value.toFixed(1) : '--';
+  if (!Number.isFinite(value)) {
+    return '--';
+  }
+  if (value < 0.1) {
+    return '<0.1';
+  }
+  return value.toFixed(1);
 }
 
 function formatDualSpeedHtml(downloadMbps, uploadMbps) {
@@ -695,23 +716,46 @@ async function measureNativeDirectLatency(sampleCount = LATENCY_SAMPLE_COUNT) {
   return summarizeLatencySamples(samples);
 }
 
-async function runNativeResourceTimingDownloadEstimate(mode = 'multi') {
-  const modeConfig = getSpeedModeConfig(mode);
-  const config = getNativeTimingProbeConfig(mode);
-  if (!config.canAttemptFullDownload) {
+function resolveNativeMeasuredBytes(timing, fallbackBytes) {
+  if (!timing) {
     return {
-      ok: false,
-      reason: `当前已知资源大小 ${formatBytesMiB(config.knownBytes)} 超出页面可接受的完整 no-cors 下载上限 ${formatBytesMiB(NATIVE_DIRECT_MAX_COMPLETE_BYTES)}。`,
-      config,
+      measuredBytes: fallbackBytes,
+      byteSource: 'known-bytes',
     };
   }
 
-  const probeUrl = makeUniqueProbeUrl(config.url, {
-    echo_nat_probe: 'native-download',
-    mode,
-  });
+  if (timing.encodedBodySize > 0) {
+    return {
+      measuredBytes: timing.encodedBodySize,
+      byteSource: 'encodedBodySize',
+    };
+  }
 
-  performance.clearResourceTimings();
+  if (timing.transferSize > 0) {
+    return {
+      measuredBytes: timing.transferSize,
+      byteSource: 'transferSize',
+    };
+  }
+
+  return {
+    measuredBytes: fallbackBytes,
+    byteSource: 'known-bytes',
+  };
+}
+
+function summarizeNativeByteSources(results) {
+  const counts = new Map();
+  results.forEach((result) => {
+    const key = result?.byteSource || 'known-bytes';
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  return Array.from(counts.entries())
+    .map(([source, count]) => `${source}×${count}`)
+    .join(' / ');
+}
+
+async function runNativeDownloadStream({ probeUrl, timeoutMs, knownBytes }) {
   let fetchError = null;
   try {
     await fetch(probeUrl, {
@@ -722,36 +766,80 @@ async function runNativeResourceTimingDownloadEstimate(mode = 'multi') {
     fetchError = error instanceof Error ? error.message : String(error);
   }
 
-  const entry = await waitForResourceTimingEntry(probeUrl, config.timeoutMs);
+  const entry = await waitForResourceTimingEntry(probeUrl, timeoutMs);
   if (!entry) {
     return {
       ok: false,
       reason: fetchError
         ? `未拿到 Resource Timing 记录（fetch: ${fetchError}）`
         : '未拿到 Resource Timing 记录',
-      config,
     };
   }
 
   const timing = readResourceTimingEntry(entry);
-  const measuredBytes = timing.encodedBodySize > 0
-    ? timing.encodedBodySize
-    : timing.transferSize > 0
-      ? timing.transferSize
-      : config.knownBytes;
-  const byteSource = timing.encodedBodySize > 0
-    ? 'encodedBodySize'
-    : timing.transferSize > 0
-      ? 'transferSize'
-      : 'known-bytes';
+  const { measuredBytes, byteSource } = resolveNativeMeasuredBytes(timing, knownBytes);
   const mbps = bytesToMbps(measuredBytes, timing.durationMs);
-
   if (!Number.isFinite(mbps) || !Number.isFinite(timing.durationMs) || timing.durationMs <= 0) {
     return {
       ok: false,
       reason: 'Resource Timing 记录存在，但 duration 无法用于吞吐计算',
-      config,
       timing,
+    };
+  }
+
+  return {
+    ok: true,
+    timing,
+    measuredBytes,
+    byteSource,
+    mbps,
+  };
+}
+
+async function runNativeResourceTimingDownloadEstimate(mode = 'multi') {
+  const modeConfig = getSpeedModeConfig(mode);
+  const config = getNativeTimingProbeConfig(mode);
+  const streamCount = Math.max(1, modeConfig.concurrency || 1);
+  if (!config.canAttemptFullDownload) {
+    return {
+      ok: false,
+      reason: `当前已知资源大小 ${formatBytesMiB(config.knownBytes)} 超出页面可接受的完整 no-cors 下载上限 ${formatBytesMiB(NATIVE_DIRECT_MAX_COMPLETE_BYTES)}。`,
+      config,
+    };
+  }
+
+  performance.clearResourceTimings();
+  const wallStartedAt = performance.now();
+  const results = await Promise.all(
+    Array.from({ length: streamCount }, (_, index) =>
+      runNativeDownloadStream({
+        probeUrl: makeUniqueProbeUrl(config.url, {
+          echo_nat_probe: 'native-download',
+          mode,
+          stream: index,
+        }),
+        timeoutMs: config.timeoutMs,
+        knownBytes: config.knownBytes,
+      })
+    )
+  );
+  const wallElapsedMs = performance.now() - wallStartedAt;
+  const failed = results.find((result) => !result.ok);
+  if (failed) {
+    return {
+      ok: false,
+      reason: failed.reason || '原生下载侧信道未命中',
+      config,
+    };
+  }
+
+  const measuredBytes = results.reduce((sum, result) => sum + result.measuredBytes, 0);
+  const mbps = bytesToMbps(measuredBytes, wallElapsedMs);
+  if (!Number.isFinite(mbps) || !Number.isFinite(wallElapsedMs) || wallElapsedMs <= 0) {
+    return {
+      ok: false,
+      reason: '原生下载侧信道已完成，但总墙钟时间无法用于吞吐计算',
+      config,
     };
   }
 
@@ -759,9 +847,114 @@ async function runNativeResourceTimingDownloadEstimate(mode = 'multi') {
     ok: true,
     mode: modeConfig.label,
     config,
-    timing,
+    streamCount,
+    timing: results[0].timing,
+    timings: results.map((result) => result.timing),
+    wallElapsedMs,
+    peakMbps: Math.max(...results.map((result) => result.mbps)),
+    totalBytes: measuredBytes,
     measuredBytes,
-    byteSource,
+    byteSource: summarizeNativeByteSources(results),
+    mbps,
+  };
+}
+
+function getNativeUploadPayload(totalBytes) {
+  if (!nativeUploadPayloadCache.has(totalBytes)) {
+    nativeUploadPayloadCache.set(totalBytes, new Blob([new Uint8Array(totalBytes)]));
+  }
+  return nativeUploadPayloadCache.get(totalBytes);
+}
+
+async function uploadNativeStream({ totalBytes, timeoutMs, streamIndex }) {
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = controller
+    ? window.setTimeout(() => controller.abort(new Error('native upload timeout')), timeoutMs)
+    : null;
+  const startedAt = performance.now();
+  try {
+    await fetch(makeUniqueProbeUrl(APPLE_DIRECT_UPLOAD_URL, {
+      echo_nat_probe: 'native-upload',
+      stream: streamIndex,
+    }), {
+      mode: 'no-cors',
+      method: 'POST',
+      cache: 'no-store',
+      body: getNativeUploadPayload(totalBytes),
+      signal: controller?.signal,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    if (timer) {
+      window.clearTimeout(timer);
+    }
+  }
+
+  const elapsedMs = performance.now() - startedAt;
+  const mbps = bytesToMbps(totalBytes, elapsedMs);
+  if (!Number.isFinite(mbps) || !Number.isFinite(elapsedMs) || elapsedMs <= 0) {
+    return {
+      ok: false,
+      reason: '原生上传侧信道已完成，但墙钟时间无法用于吞吐计算',
+    };
+  }
+
+  return {
+    ok: true,
+    totalBytes,
+    elapsedMs,
+    mbps,
+  };
+}
+
+async function runNativeUploadEstimate(mode = 'multi') {
+  const modeConfig = getSpeedModeConfig(mode);
+  const streamCount = Math.max(1, modeConfig.concurrency || 1);
+  const bytesPerStream = modeConfig.uploadBytes;
+  const timeoutMs = Math.max(NATIVE_DIRECT_ENTRY_TIMEOUT_MS, 120000);
+  const wallStartedAt = performance.now();
+  const results = await Promise.all(
+    Array.from({ length: streamCount }, (_, index) =>
+      uploadNativeStream({
+        totalBytes: bytesPerStream,
+        timeoutMs,
+        streamIndex: index,
+      })
+    )
+  );
+  const wallElapsedMs = performance.now() - wallStartedAt;
+  const failed = results.find((result) => !result.ok);
+  if (failed) {
+    return {
+      ok: false,
+      reason: failed.reason || '原生上传侧信道未命中',
+      streamCount,
+      bytesPerStream,
+    };
+  }
+
+  const totalBytes = results.reduce((sum, result) => sum + result.totalBytes, 0);
+  const mbps = bytesToMbps(totalBytes, wallElapsedMs);
+  if (!Number.isFinite(mbps) || !Number.isFinite(wallElapsedMs) || wallElapsedMs <= 0) {
+    return {
+      ok: false,
+      reason: '原生上传侧信道已完成，但总墙钟时间无法用于吞吐计算',
+      streamCount,
+      bytesPerStream,
+    };
+  }
+
+  return {
+    ok: true,
+    streamCount,
+    bytesPerStream,
+    totalBytes,
+    wallElapsedMs,
+    peakMbps: Math.max(...results.map((result) => result.mbps)),
     mbps,
   };
 }
@@ -1494,9 +1687,8 @@ async function startRelaySpeedTest(mode = 'multi') {
   });
 }
 
-function renderNativeDirectEstimateResult(mode, idleLatency, downloadEstimate) {
+function renderNativeDirectEstimateResult(mode, idleLatency, downloadEstimate, uploadEstimate) {
   const source = 'native';
-  const sourceMeta = getSpeedSourceMeta(source);
   const modeConfig = getSpeedModeConfig(mode);
 
   resetBrowserSpeedCard(mode, source);
@@ -1504,29 +1696,39 @@ function renderNativeDirectEstimateResult(mode, idleLatency, downloadEstimate) {
     showSpinner: false,
     borderColor: 'var(--accent-green)',
     status: '已完成 · Estimated',
-    mainValue: formatMbps(downloadEstimate.mbps),
+    mainValue: '',
+    mainHtml: formatDualSpeedHtml(downloadEstimate.mbps, uploadEstimate?.mbps),
     summary: downloadEstimate.config?.defaultProbeLabel === 'small-known-byte-probe'
-      ? `${modeConfig.label}原生 small probe 已命中`
-      : `${modeConfig.label}直连侧信道估算完成`,
+      ? `${modeConfig.label}原生 small probe + upload 侧信道已命中`
+      : `${modeConfig.label}原生侧信道估算完成`,
   });
   updateSpeedMetric(
     modeConfig.downloadMetricId,
     formatMbps(downloadEstimate.mbps),
-    `${downloadEstimate.byteSource} · ${formatBytesMiB(downloadEstimate.measuredBytes)} · duration ${downloadEstimate.timing.durationMs.toFixed(1)} ms${downloadEstimate.config?.defaultProbeLabel === 'small-known-byte-probe' ? ' · default small probe' : ''}`
+    `${downloadEstimate.streamCount} 线程 · ${formatBytesAdaptive(downloadEstimate.totalBytes)} · 聚合 ${formatMbps(downloadEstimate.mbps)} · ${downloadEstimate.byteSource}${downloadEstimate.config?.defaultProbeLabel === 'small-known-byte-probe' ? ' · default small probe' : ''}`
   );
-  updateSpeedMetric(modeConfig.uploadMetricId, '-', '本次原生侧信道实现仅对下载做估算；上传仍需单独挑战。');
+  updateSpeedMetric(
+    modeConfig.uploadMetricId,
+    formatMbps(uploadEstimate?.mbps),
+    `${uploadEstimate.streamCount} 线程 · ${formatBytesAdaptive(uploadEstimate.totalBytes)} · 聚合 ${formatMbps(uploadEstimate.mbps)} · POST no-cors`
+  );
   renderLatencyBaseline(idleLatency);
   updateSpeedMetric(
     'speedLatencyDownload',
-    formatLatencyMs(downloadEstimate.timing.durationMs),
-    `Resource Timing ${downloadEstimate.timing.initiatorType || 'fetch'} · nextHop=${downloadEstimate.timing.nextHopProtocol || 'n/a'}`
+    formatLatencyMs(downloadEstimate.wallElapsedMs),
+    `Resource Timing ${downloadEstimate.streamCount} stream(s) · ${downloadEstimate.byteSource}`
   );
-  updateSpeedMetric('speedLatencyUpload', '-', sourceMeta.uploadLatencyDetail);
+  updateSpeedMetric(
+    'speedLatencyUpload',
+    formatLatencyMs(uploadEstimate.wallElapsedMs),
+    `POST no-cors ${uploadEstimate.streamCount} stream(s) · ${formatBytesAdaptive(uploadEstimate.totalBytes)}`
+  );
   renderSpeedEndpoint(APPLE_DIRECT_HOST, '纯净 Chrome / 无插件 / Resource Timing 侧信道');
   setSpeedHint(downloadEstimate.config?.defaultProbeLabel === 'small-known-byte-probe' ? '已命中默认原生 small probe；当前展示的是原生侧信道 Estimated，不再回退 Relay。' : '已获得原生浏览器 Resource Timing 下载估算，本次不再回退 Relay。', 'success');
 
-  addLog(sourceMeta.logLabel, `侧信道下载估算 ${formatMbps(downloadEstimate.mbps)} · ${formatBytesMiB(downloadEstimate.measuredBytes)} / ${downloadEstimate.timing.durationMs.toFixed(1)} ms`, 'result', 'speed');
-  addLog(sourceMeta.logLabel, `字节来源 ${downloadEstimate.byteSource} · nextHop=${downloadEstimate.timing.nextHopProtocol || 'n/a'}`, 'info', 'speed');
+  addLog('原生直连', `原生下载估算 ${formatMbps(downloadEstimate.mbps)} · ${formatBytesAdaptive(downloadEstimate.totalBytes)} / ${downloadEstimate.wallElapsedMs.toFixed(1)} ms`, 'result', 'speed');
+  addLog('原生直连', `原生上传估算 ${formatMbps(uploadEstimate.mbps)} · ${formatBytesAdaptive(uploadEstimate.totalBytes)} / ${uploadEstimate.wallElapsedMs.toFixed(1)} ms`, 'result', 'speed');
+  addLog('原生直连', `字节来源 ${downloadEstimate.byteSource} · nextHop=${downloadEstimate.timing.nextHopProtocol || 'n/a'}`, 'info', 'speed');
 }
 
 async function startNativeDirectSpeedTest(mode = 'multi') {
@@ -1574,11 +1776,38 @@ async function startNativeDirectSpeedTest(mode = 'multi') {
     };
   }
 
-  renderNativeDirectEstimateResult(mode, idleLatency, downloadEstimate);
+  addLog(
+    sourceMeta.logLabel,
+    `原生下载已命中 ${downloadEstimate.streamCount} 线程 · ${formatBytesAdaptive(downloadEstimate.totalBytes)}`,
+    'info',
+    'speed'
+  );
+
+  await delay(SPEED_STAGE_PAUSE_MS);
+  const uploadEstimate = await runNativeUploadEstimate(mode);
+  if (!uploadEstimate.ok) {
+    updateSpeedMetric(
+      modeConfig.uploadMetricId,
+      'Upload-Blocked',
+      uploadEstimate.reason || '原生 POST 上传估算未命中'
+    );
+    updateSpeedMetric('speedLatencyUpload', 'Upload-Blocked', uploadEstimate.reason || '未取得可信原生上传侧信道结果');
+    addLog(sourceMeta.logLabel, `上传侧信道未命中：${uploadEstimate.reason || '未知原因'}`, 'fail', 'speed');
+    setSpeedHint('原生 POST 上传未产出可信估算，将回退 Apple CDN Relay 保持功能可用。', 'warn');
+    return {
+      ok: false,
+      idleLatency,
+      downloadEstimate,
+      uploadEstimate,
+    };
+  }
+
+  renderNativeDirectEstimateResult(mode, idleLatency, downloadEstimate, uploadEstimate);
   return {
     ok: true,
     idleLatency,
     downloadEstimate,
+    uploadEstimate,
   };
 }
 

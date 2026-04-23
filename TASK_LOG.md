@@ -282,5 +282,6 @@
   - 验证：`python3 -m py_compile Web/serve.py`
   - 验证：`cd inetspeed && go test ./...`
   - 验证：Chrome CDP 打开默认页 `http://127.0.0.1:8131/` 并点击 `Apple 单线程测速` 后，页面最终状态为 `已完成 · Estimated`，主结果为 `<0.1 Mbps`，日志显示 `默认探针 small / 1B known-byte`，且未触发 `[FALLBACK_SINK]`。
+## 目标清单（原生单双线程强制估算）
+- [ ] **目标:** 强制实现 Apple 单线程 / 多线程都走原生侧信道估算，并仅在原生估算失败时才回退 Relay (创建于: 2026-04-24 00:24:02)
 
-[Project Finalized: All Objectives Completed] - 2026-04-23
