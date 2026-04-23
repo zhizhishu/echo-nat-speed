@@ -74,3 +74,10 @@
   - 验证：`python3 -m py_compile Web/serve.py`
   - 验证：本地启动 `ECHO_NAT_PORT=8092 python3 Web/serve.py`，实测 `GET /api/browser-speed/ping`、`GET /api/browser-speed/download?bytes=1048576`、`POST /api/browser-speed/upload` 全部成功。
   - 验证：Chrome DevTools 打开 `http://127.0.0.1:8092`，点击“浏览器测速”后页面成功完成整套测速流程，并显示单线程、多线程、负载延迟与抖动指标。
+- [x] ~~**目标:** 将浏览器测速拆成单线程与多线程两个独立入口，并按当前模式分别展示结果~~ (创建于: 2026-04-23 13:37:21 | **完成于: 2026-04-23 13:42:53**)
+  - 更新：`Web/index.html` 将单个“浏览器测速”按钮拆为“单线程测速”和“多线程测速”两个独立入口。
+  - 更新：`Web/app.js` 将测速执行流改为按模式运行；单线程入口只跑 1 线程下载/上传，多线程入口只跑 4 线程下载/上传，两者不会再一次混跑。
+  - 更新：结果卡会把未运行的另一模式标记为“未执行”，并将负载延迟描述为当前测速模式下的下载/上传阶段采样。
+  - 验证：`node --check Web/app.js`
+  - 验证：`python3 -m py_compile Web/serve.py`
+  - 验证：Chrome DevTools 打开 `http://127.0.0.1:8093`，分别点击“单线程测速”和“多线程测速”，两个入口都能独立完成并正确标记另一模式未执行。

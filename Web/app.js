@@ -28,6 +28,32 @@ const LOAD_LATENCY_INTERVAL_MS = 180;
 const SPEED_STAGE_PAUSE_MS = 180;
 
 const uploadPayloadCache = new Map();
+const SPEED_TEST_MODES = {
+  single: {
+    label: '单线程',
+    buttonId: 'singleSpeedBtn',
+    buttonText: '单线程测速',
+    downloadMetricId: 'speedDownloadSingle',
+    uploadMetricId: 'speedUploadSingle',
+    otherDownloadMetricId: 'speedDownloadMulti',
+    otherUploadMetricId: 'speedUploadMulti',
+    concurrency: 1,
+    downloadBytes: DOWNLOAD_SINGLE_BYTES,
+    uploadBytes: UPLOAD_SINGLE_BYTES,
+  },
+  multi: {
+    label: '多线程',
+    buttonId: 'multiSpeedBtn',
+    buttonText: '多线程测速',
+    downloadMetricId: 'speedDownloadMulti',
+    uploadMetricId: 'speedUploadMulti',
+    otherDownloadMetricId: 'speedDownloadSingle',
+    otherUploadMetricId: 'speedUploadSingle',
+    concurrency: DOWNLOAD_MULTI_CONCURRENCY,
+    downloadBytes: DOWNLOAD_MULTI_STREAM_BYTES,
+    uploadBytes: UPLOAD_MULTI_STREAM_BYTES,
+  },
+};
 
 const logState = {
   nat: 0,
@@ -268,6 +294,28 @@ function renderSpeedEndpoint() {
   updateSpeedMetric('speedEndpoint', speedEndpointLabel(), '当前用户浏览器 → 当前部署节点');
 }
 
+function getSpeedModeConfig(mode = 'multi') {
+  return SPEED_TEST_MODES[mode] || SPEED_TEST_MODES.multi;
+}
+
+function setSpeedButtonsState(runningMode = null) {
+  Object.values(SPEED_TEST_MODES).forEach((config) => {
+    const button = document.getElementById(config.buttonId);
+    if (!button) {
+      return;
+    }
+
+    if (!runningMode) {
+      button.disabled = false;
+      button.textContent = config.buttonText;
+      return;
+    }
+
+    button.disabled = true;
+    button.textContent = config.label === getSpeedModeConfig(runningMode).label ? '测速中...' : '等待中...';
+  });
+}
+
 function setSpeedHint(text, tone = 'info') {
   const box = document.getElementById('speedHintBox');
   box.classList.remove('is-success', 'is-warn', 'is-fail');
@@ -281,36 +329,60 @@ function setSpeedHint(text, tone = 'info') {
   setText('speedHintText', text);
 }
 
-function resetBrowserSpeedCard() {
+function resetBrowserSpeedCard(mode = null) {
+  const modeConfig = mode ? getSpeedModeConfig(mode) : null;
   setSpeedCardState({
     showSpinner: false,
     borderColor: 'rgba(0, 122, 255, 0.16)',
     status: '等待测速',
     mainValue: '-- Mbps',
-    summary: '通过当前浏览器向当前部署节点发起真实下载与上传流量，标准结果默认以多线程测速为主，单线程与负载延迟作为参考。',
+    summary: modeConfig
+      ? `本次将只执行${modeConfig.label}测速。另一种模式不会自动连带执行，需要单独点击对应按钮。`
+      : '通过当前浏览器向当前部署节点发起真实下载与上传流量。单线程和多线程现在是两个独立入口，不会再一次混跑。',
   });
-  updateSpeedMetric('speedDownloadMulti', '-', `${DOWNLOAD_MULTI_CONCURRENCY} 线程聚合结果`);
-  updateSpeedMetric('speedDownloadSingle', '-', '单连接参考值');
-  updateSpeedMetric('speedUploadMulti', '-', `${UPLOAD_MULTI_CONCURRENCY} 线程聚合结果`);
-  updateSpeedMetric('speedUploadSingle', '-', '单连接参考值');
+  updateSpeedMetric(
+    'speedDownloadMulti',
+    mode === 'single' ? '未执行' : '-',
+    mode === 'single' ? '本次未运行多线程下载' : '独立执行多线程测速后显示'
+  );
+  updateSpeedMetric(
+    'speedDownloadSingle',
+    mode === 'multi' ? '未执行' : '-',
+    mode === 'multi' ? '本次未运行单线程下载' : '独立执行单线程测速后显示'
+  );
+  updateSpeedMetric(
+    'speedUploadMulti',
+    mode === 'single' ? '未执行' : '-',
+    mode === 'single' ? '本次未运行多线程上传' : '独立执行多线程测速后显示'
+  );
+  updateSpeedMetric(
+    'speedUploadSingle',
+    mode === 'multi' ? '未执行' : '-',
+    mode === 'multi' ? '本次未运行单线程上传' : '独立执行单线程测速后显示'
+  );
   updateSpeedMetric('speedLatencyIdle', '-', '测速前空载基线');
-  updateSpeedMetric('speedLatencyDownload', '-', '多线程下载阶段同步采样');
-  updateSpeedMetric('speedLatencyUpload', '-', '多线程上传阶段同步采样');
+  updateSpeedMetric('speedLatencyDownload', '-', '当前测速模式的下载阶段同步采样');
+  updateSpeedMetric('speedLatencyUpload', '-', '当前测速模式的上传阶段同步采样');
   updateSpeedMetric('speedJitter', '-', '空载延迟波动');
   renderSpeedEndpoint();
-  setSpeedHint('等待开始浏览器测速。该测试会真实占用当前用户设备的上下行带宽，并同步采集负载中的延迟变化。');
+  setSpeedHint(
+    modeConfig
+      ? `等待开始${modeConfig.label}测速。该测试会真实占用当前用户设备的上下行带宽，并同步采集当前模式下的负载延迟。`
+      : '等待开始浏览器测速。该测试会真实占用当前用户设备的上下行带宽，并同步采集负载中的延迟变化。'
+  );
 }
 
-function setBrowserSpeedPreparing() {
+function setBrowserSpeedPreparing(mode) {
+  const modeConfig = getSpeedModeConfig(mode);
   setSpeedCardState({
     showSpinner: true,
     borderColor: 'var(--accent-blue)',
-    status: '测速准备中...',
+    status: `${modeConfig.label}测速准备中...`,
     mainValue: '-- Mbps',
-    summary: '正在预热测速链路并校验部署节点是否可用。',
+    summary: `正在预热${modeConfig.label}测速链路并校验部署节点是否可用。`,
   });
   renderSpeedEndpoint();
-  setSpeedHint('测速流量将直接由当前浏览器发起。若页面部署在远端，你本地网卡应会出现真实吞吐变化。');
+  setSpeedHint(`测速流量将直接由当前浏览器发起。本次只执行${modeConfig.label}模式，若页面部署在远端，你本地网卡应会出现真实吞吐变化。`);
 }
 
 function renderLatencyBaseline(latencyStats) {
@@ -641,8 +713,8 @@ function renderTransferStage({ direction, concurrency, progress, baselineLatency
   renderSpeedEndpoint();
   setSpeedHint(
     isDownload
-      ? '当前大号数值是浏览器实时下载吞吐，最终标准值默认取多线程下载阶段的聚合结果。'
-      : '当前大号数值是浏览器实时上传吞吐，最终标准值默认取多线程上传阶段的聚合结果。',
+      ? `当前大号数值是浏览器实时下载吞吐，当前运行模式为${phaseName}。`
+      : `当前大号数值是浏览器实时上传吞吐，当前运行模式为${phaseName}。`,
     isDownload ? 'info' : 'warn'
   );
 }
@@ -708,56 +780,57 @@ async function runMeasuredTransfer({ direction, concurrency, bytesPerStream, bas
 }
 
 function renderBrowserSpeedResult({
+  mode,
   idleLatency,
-  downloadSingle,
-  downloadMulti,
-  uploadSingle,
-  uploadMulti,
+  download,
+  upload,
   downloadLoadedLatency,
   uploadLoadedLatency,
 }) {
+  const modeConfig = getSpeedModeConfig(mode);
+  const otherModeLabel = mode === 'single' ? '多线程' : '单线程';
   setSpeedCardState({
     showSpinner: false,
     borderColor: 'var(--accent-green)',
     status: '已完成',
-    mainValue: formatDualSpeed(downloadMulti?.mbps, uploadMulti?.mbps),
-    summary: '标准结果采用多线程聚合测速；单线程结果可帮助判断单连接上限，负载延迟用于观察测速时的交互退化。',
+    mainValue: formatDualSpeed(download?.mbps, upload?.mbps),
+    summary: `${modeConfig.label}测速完成。本页现在不会混跑另一种模式，如需对比请单独点击“${otherModeLabel}测速”。`,
   });
 
   updateSpeedMetric(
-    'speedDownloadMulti',
-    formatMbps(downloadMulti?.mbps),
-    `${DOWNLOAD_MULTI_CONCURRENCY} 线程 · ${formatBytesMiB(downloadMulti?.totalBytes)} · 峰值 ${formatMbps(downloadMulti?.peakMbps)}`
+    modeConfig.downloadMetricId,
+    formatMbps(download?.mbps),
+    `${modeConfig.concurrency} 线程 · ${formatBytesMiB(download?.totalBytes)} · 峰值 ${formatMbps(download?.peakMbps)}`
   );
   updateSpeedMetric(
-    'speedDownloadSingle',
-    formatMbps(downloadSingle?.mbps),
-    `1 线程 · ${formatBytesMiB(downloadSingle?.totalBytes)} · 峰值 ${formatMbps(downloadSingle?.peakMbps)}`
+    modeConfig.otherDownloadMetricId,
+    '未执行',
+    `本次未运行${otherModeLabel}下载`
   );
   updateSpeedMetric(
-    'speedUploadMulti',
-    formatMbps(uploadMulti?.mbps),
-    `${UPLOAD_MULTI_CONCURRENCY} 线程 · ${formatBytesMiB(uploadMulti?.totalBytes)} · 峰值 ${formatMbps(uploadMulti?.peakMbps)}`
+    modeConfig.uploadMetricId,
+    formatMbps(upload?.mbps),
+    `${modeConfig.concurrency} 线程 · ${formatBytesMiB(upload?.totalBytes)} · 峰值 ${formatMbps(upload?.peakMbps)}`
   );
   updateSpeedMetric(
-    'speedUploadSingle',
-    formatMbps(uploadSingle?.mbps),
-    `1 线程 · ${formatBytesMiB(uploadSingle?.totalBytes)} · 峰值 ${formatMbps(uploadSingle?.peakMbps)}`
+    modeConfig.otherUploadMetricId,
+    '未执行',
+    `本次未运行${otherModeLabel}上传`
   );
   renderLatencyBaseline(idleLatency);
-  renderLoadLatencyMetric('speedLatencyDownload', downloadLoadedLatency, idleLatency, '多线程下载 · ');
-  renderLoadLatencyMetric('speedLatencyUpload', uploadLoadedLatency, idleLatency, '多线程上传 · ');
+  renderLoadLatencyMetric('speedLatencyDownload', downloadLoadedLatency, idleLatency, `${modeConfig.label}下载 · `);
+  renderLoadLatencyMetric('speedLatencyUpload', uploadLoadedLatency, idleLatency, `${modeConfig.label}上传 · `);
   renderSpeedEndpoint();
-  setSpeedHint('当前结果来自“用户浏览器 → 当前部署节点”的真实流量，已不再读取服务器自身测速；标准值默认取多线程阶段。', 'success');
+  setSpeedHint(`当前结果来自“用户浏览器 → 当前部署节点”的真实流量，本次只执行了${modeConfig.label}模式。`, 'success');
 
   addLog('浏览器测速', `目标节点 ${speedEndpointLabel()}`, 'info', 'speed');
   addLog(
     '浏览器测速',
-    `标准值 下载 ${formatMbps(downloadMulti.mbps)} / 上传 ${formatMbps(uploadMulti.mbps)}`,
+    `${modeConfig.label}结果 下载 ${formatMbps(download.mbps)} / 上传 ${formatMbps(upload.mbps)}`,
     'result',
     'speed'
   );
-  addLog('浏览器测速', '浏览器测速完成 ✓', 'result', 'speed');
+  addLog('浏览器测速', `${modeConfig.label}测速完成 ✓`, 'result', 'speed');
 }
 
 function renderBrowserSpeedError(message) {
@@ -970,16 +1043,16 @@ async function startDetection() {
   btn.textContent = '重新检测';
 }
 
-async function startBrowserSpeedTest() {
-  const btn = document.getElementById('browserSpeedBtn');
-  btn.disabled = true;
-  btn.textContent = '测速中...';
+async function startBrowserSpeedTest(mode = 'multi') {
+  const modeConfig = getSpeedModeConfig(mode);
+  setSpeedButtonsState(mode);
 
   hideSection('resultSection');
   showSection('speedResultSection');
   resetLogs('speed');
-  setBrowserSpeedPreparing();
-  addLog('浏览器测速', '开始从当前浏览器发起标准测速流程...', 'info', 'speed');
+  resetBrowserSpeedCard(mode);
+  setBrowserSpeedPreparing(mode);
+  addLog('浏览器测速', `开始从当前浏览器发起${modeConfig.label}测速流程...`, 'info', 'speed');
 
   try {
     await pingBrowserSpeed('warmup');
@@ -994,64 +1067,44 @@ async function startBrowserSpeedTest() {
     );
 
     await delay(SPEED_STAGE_PAUSE_MS);
-    const downloadSingle = await runMeasuredTransfer({
+    const download = await runMeasuredTransfer({
       direction: 'download',
-      concurrency: 1,
-      bytesPerStream: DOWNLOAD_SINGLE_BYTES,
-      baselineLatency: idleLatency,
-    });
-    addLog('浏览器测速', `单线程下载 ${formatMbps(downloadSingle.mbps)}`, 'result', 'speed');
-
-    await delay(SPEED_STAGE_PAUSE_MS);
-    const downloadMulti = await runMeasuredTransfer({
-      direction: 'download',
-      concurrency: DOWNLOAD_MULTI_CONCURRENCY,
-      bytesPerStream: DOWNLOAD_MULTI_STREAM_BYTES,
+      concurrency: modeConfig.concurrency,
+      bytesPerStream: modeConfig.downloadBytes,
       baselineLatency: idleLatency,
       captureLoadLatency: true,
     });
-    addLog('浏览器测速', `多线程下载 ${formatMbps(downloadMulti.mbps)}`, 'result', 'speed');
-    if (downloadMulti.loadedLatency?.medianMs != null) {
-      addLog('浏览器测速', `下载负载延迟 ${formatLatencyMs(downloadMulti.loadedLatency.medianMs)}`, 'info', 'speed');
+    addLog('浏览器测速', `${modeConfig.label}下载 ${formatMbps(download.mbps)}`, 'result', 'speed');
+    if (download.loadedLatency?.medianMs != null) {
+      addLog('浏览器测速', `下载负载延迟 ${formatLatencyMs(download.loadedLatency.medianMs)}`, 'info', 'speed');
     }
 
     await delay(SPEED_STAGE_PAUSE_MS);
-    const uploadSingle = await runMeasuredTransfer({
+    const upload = await runMeasuredTransfer({
       direction: 'upload',
-      concurrency: 1,
-      bytesPerStream: UPLOAD_SINGLE_BYTES,
-      baselineLatency: idleLatency,
-    });
-    addLog('浏览器测速', `单线程上传 ${formatMbps(uploadSingle.mbps)}`, 'result', 'speed');
-
-    await delay(SPEED_STAGE_PAUSE_MS);
-    const uploadMulti = await runMeasuredTransfer({
-      direction: 'upload',
-      concurrency: UPLOAD_MULTI_CONCURRENCY,
-      bytesPerStream: UPLOAD_MULTI_STREAM_BYTES,
+      concurrency: modeConfig.concurrency,
+      bytesPerStream: modeConfig.uploadBytes,
       baselineLatency: idleLatency,
       captureLoadLatency: true,
     });
-    addLog('浏览器测速', `多线程上传 ${formatMbps(uploadMulti.mbps)}`, 'result', 'speed');
-    if (uploadMulti.loadedLatency?.medianMs != null) {
-      addLog('浏览器测速', `上传负载延迟 ${formatLatencyMs(uploadMulti.loadedLatency.medianMs)}`, 'info', 'speed');
+    addLog('浏览器测速', `${modeConfig.label}上传 ${formatMbps(upload.mbps)}`, 'result', 'speed');
+    if (upload.loadedLatency?.medianMs != null) {
+      addLog('浏览器测速', `上传负载延迟 ${formatLatencyMs(upload.loadedLatency.medianMs)}`, 'info', 'speed');
     }
 
     renderBrowserSpeedResult({
+      mode,
       idleLatency,
-      downloadSingle,
-      downloadMulti,
-      uploadSingle,
-      uploadMulti,
-      downloadLoadedLatency: downloadMulti.loadedLatency,
-      uploadLoadedLatency: uploadMulti.loadedLatency,
+      download,
+      upload,
+      downloadLoadedLatency: download.loadedLatency,
+      uploadLoadedLatency: upload.loadedLatency,
     });
   } catch (error) {
     renderBrowserSpeedError(error instanceof Error ? error.message : '浏览器测速失败');
   } finally {
     document.getElementById('speedSpinner').style.display = 'none';
-    btn.disabled = false;
-    btn.textContent = '重新测速';
+    setSpeedButtonsState(null);
   }
 }
 
