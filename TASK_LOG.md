@@ -113,3 +113,12 @@
   - 验证：`python3 -m py_compile Web/serve.py`
   - 验证：本地启动 `ECHO_NAT_PORT=8097 python3 Web/serve.py`，Chrome 页面点击 `Apple 单线程测速` 后发出 `POST /api/domestic-speed`。
   - 验证：页面结果卡显示 Apple CDN 节点 IP `113.96.136.166`，不再显示 ClawCloud 域名。
+- [x] ~~**目标:** 将网页测速拆分为“浏览器真实测速”和“Apple CDN 服务器诊断”两条明确能力，避免误导用户~~ (创建于: 2026-04-23 16:06:27 | **完成于: 2026-04-23 16:13:53**)
+  - 更新：`Web/index.html` 将测速入口拆成 `浏览器单线程测速`、`浏览器多线程测速`、`Apple 单线程诊断`、`Apple 多线程诊断` 四个独立按钮。
+  - 更新：`Web/app.js` 恢复浏览器真实测速主流程，使用 `/api/browser-speed/*` 测用户到当前部署节点的真实流量。
+  - 更新：`Web/app.js` 保留 Apple CDN 诊断主流程，使用 `/api/domestic-speed` 调用内置 `inetspeed/`，并把卡片标题、提示、日志明确为服务器诊断。
+  - 更新：`README.md` 与 `README.zh-CN.md` 补充浏览器安全限制说明，明确普通网页无法直接对 Apple CDN 做完整用户侧测速。
+  - 验证：`node --check Web/app.js`
+  - 验证：`python3 -m py_compile Web/serve.py`
+  - 验证：本地启动 `ECHO_NAT_PORT=8098 python3 Web/serve.py`，页面点击 `浏览器单线程测速` 后产生 `/api/browser-speed/ping`、`/api/browser-speed/download`、`/api/browser-speed/upload` 请求。
+  - 验证：同一页面点击 `Apple 单线程诊断` 后产生 `POST /api/domestic-speed` 请求，结果卡显示 Apple CDN 节点 `113.96.136.165`。

@@ -30,16 +30,22 @@
   <!-- Hero -->
   <section class="hero" id="detect">
     <h1>在线检测 <span class="gradient-text">NAT 类型</span></h1>
-    <p class="subtitle">基于 WebRTC STUN 与内置 inetspeed Apple CDN 诊断，识别当前网络 NAT 状态，并补充 Apple CDN 节点的延迟、下载和上传表现。</p>
+    <p class="subtitle">基于 WebRTC STUN、用户浏览器真实流量与内置 inetspeed 诊断，识别当前网络 NAT 状态，并分别给出用户测速与 Apple CDN 服务器诊断结果。</p>
     <div class="hero-actions">
       <button id="startBtn" class="btn-primary" onclick="startDetection()">
         开始 NAT 检测
       </button>
-      <button id="singleSpeedBtn" class="btn-secondary" onclick="startBrowserSpeedTest('single')">
-        Apple 单线程测速
+      <button id="browserSingleSpeedBtn" class="btn-secondary" onclick="startBrowserSpeedTest('single')">
+        浏览器单线程测速
       </button>
-      <button id="multiSpeedBtn" class="btn-secondary" onclick="startBrowserSpeedTest('multi')">
-        Apple 多线程测速
+      <button id="browserMultiSpeedBtn" class="btn-secondary" onclick="startBrowserSpeedTest('multi')">
+        浏览器多线程测速
+      </button>
+      <button id="appleSingleSpeedBtn" class="btn-secondary" onclick="startAppleSpeedTest('single')">
+        Apple 单线程诊断
+      </button>
+      <button id="appleMultiSpeedBtn" class="btn-secondary" onclick="startAppleSpeedTest('multi')">
+        Apple 多线程诊断
       </button>
     </div>
   </section>
@@ -107,34 +113,34 @@
   <section class="result-section speed-result-section" id="speedResultSection" style="display:none;">
     <div class="card card-main speed-card" id="speedCard">
       <div class="card-header">
-        <span class="card-tag">Apple CDN 测速</span>
+        <span class="card-tag" id="speedCardTag">测速结果</span>
         <span class="card-status" id="speedStatus">等待测试</span>
       </div>
 
       <div class="speed-overview">
         <div class="spinner" id="speedSpinner" style="display:none;"></div>
         <div class="speed-main-value" id="speedMainValue">-- Mbps</div>
-        <div class="speed-main-label" id="speedSummary">内置 inetspeed 调用 Apple CDN 测速资源</div>
+        <div class="speed-main-label" id="speedSummary">请选择一种测速方式</div>
       </div>
 
       <div class="speed-metrics" id="speedMetrics">
         <div class="speed-metric">
-          <span class="speed-metric-label">Apple 多线程下载</span>
+          <span class="speed-metric-label">多线程下载</span>
           <span class="speed-metric-value" id="speedDownloadMulti">-</span>
           <span class="metric-detail" id="speedDownloadMultiDetail">独立执行多线程测速后显示</span>
         </div>
         <div class="speed-metric">
-          <span class="speed-metric-label">Apple 单线程下载</span>
+          <span class="speed-metric-label">单线程下载</span>
           <span class="speed-metric-value" id="speedDownloadSingle">-</span>
           <span class="metric-detail" id="speedDownloadSingleDetail">独立执行单线程测速后显示</span>
         </div>
         <div class="speed-metric">
-          <span class="speed-metric-label">Apple 多线程上传</span>
+          <span class="speed-metric-label">多线程上传</span>
           <span class="speed-metric-value" id="speedUploadMulti">-</span>
           <span class="metric-detail" id="speedUploadMultiDetail">独立执行多线程测速后显示</span>
         </div>
         <div class="speed-metric">
-          <span class="speed-metric-label">Apple 单线程上传</span>
+          <span class="speed-metric-label">单线程上传</span>
           <span class="speed-metric-value" id="speedUploadSingle">-</span>
           <span class="metric-detail" id="speedUploadSingleDetail">独立执行单线程测速后显示</span>
         </div>
@@ -159,9 +165,9 @@
           <span class="metric-detail" id="speedJitterDetail">空载延迟波动</span>
         </div>
         <div class="speed-metric speed-metric-wide">
-          <span class="speed-metric-label">Apple CDN 节点</span>
+          <span class="speed-metric-label">测速节点</span>
           <span class="speed-metric-value speed-metric-endpoint" id="speedEndpoint">-</span>
-          <span class="metric-detail" id="speedEndpointDetail">inetspeed 自动选点</span>
+          <span class="metric-detail" id="speedEndpointDetail">等待测速</span>
         </div>
       </div>
 
