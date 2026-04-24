@@ -300,5 +300,15 @@
   - 复核：`ghcr.io/zhizhishu/echo-nat-speed:sha-d64f9e9` 标签存在，可作为 ClawCloud 强制拉取的稳定版本标签。
   - 结论：镜像推送本身已完成；ClawCloud 若仍只看到 `GET /`，这与当前原生侧信道路径一致——原生 `no-cors` 下载/上传不会命中 `/api/browser-speed/*`，服务端日志只会保留页面加载。
   - 建议：ClawCloud 侧优先改用 `ghcr.io/zhizhishu/echo-nat-speed:sha-d64f9e9` 重新部署，避免 `latest` 缓存；浏览器侧执行强制刷新，确认页面标题文案已变为“默认先跑已知大小的 small probe...”。
+## 目标清单（原生样本量修正）
+- [x] ~~**目标:** 提升原生下载侧信道默认样本量，修正 1 Byte probe 导致的下载量化失真，并重新发布到 GitHub / GHCR~~ (创建于: 2026-04-24 10:10:23 | **完成于: 2026-04-24 10:15:18**)
+  - 更新：`Web/app.js` 将 `DEFAULT_NATIVE_PROBE_KNOWN_BYTES` 从 `1` 提升为 `1 MiB`，并把默认 `small probe` 改为 `1.0 MiB calibrated sample` 语义，以降低 RTT 对下载估算的吞吐掩盖。
+  - 更新：`Web/app.js` 将默认下载字节来源标签改为 `calibrated-known-bytes`，避免把校准样本误写成真实 `transferSize`。
+  - 更新：`Web/index.html`、`README.md`、`README.zh-CN.md` 同步说明默认原生下载估算现在使用 `1.0 MiB` 校准样本，而不是 `1 Byte`。
+  - 验证：`node --check Web/app.js`
+  - 验证：`python3 -m py_compile Web/serve.py`
+  - 验证：`cd inetspeed && go test ./...`
+  - 验证：Chrome CDP 打开默认页 `http://127.0.0.1:8134/` 并点击 `Apple 单线程测速` 后，页面状态为 `已完成 · Estimated`，原生下载 `9.7 Mbps`、原生上传 `13.1 Mbps`，未触发 `[FALLBACK_SINK]`。
+  - 验证：Chrome CDP 在同页点击 `Apple 多线程测速` 后，页面状态为 `已完成 · Estimated`，原生下载 `106.5 Mbps`、原生上传 `14.0 Mbps`，未触发 `[FALLBACK_SINK]`。
 
 [Project Finalized: All Objectives Completed] - 2026-04-23

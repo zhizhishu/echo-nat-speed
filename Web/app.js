@@ -37,7 +37,7 @@ const FALLBACK_SINK_TAG = '[FALLBACK_SINK]';
 const NATIVE_DIRECT_ENTRY_TIMEOUT_MS = 20000;
 const NATIVE_DIRECT_RTT_TIMEOUT_MS = 4000;
 const NATIVE_DIRECT_MAX_COMPLETE_BYTES = 64 * 1024 * 1024;
-const DEFAULT_NATIVE_PROBE_KNOWN_BYTES = 1;
+const DEFAULT_NATIVE_PROBE_KNOWN_BYTES = 1 * 1024 * 1024;
 
 const uploadPayloadCache = new Map();
 const nativeUploadPayloadCache = new Map();
@@ -59,8 +59,8 @@ const SPEED_SOURCE_META = {
     endpointLabel: () => speedRuntime.endpoint || 'mensura.cdn-apple.com',
     endpointDetail: () => speedRuntime.endpointDetail || '纯净 Chrome / 无插件 / 不修改配置',
     waitingSummary: '原生 small probe 优先，Relay 为回退',
-    waitingHint: '当前链路会先执行 Zero-Install 原生 small probe（已知大小 challenge），命中后直接展示 Estimated；只有未获得可信 Timing 记录时才回退 Apple CDN Relay。',
-    preparingHint: '正在执行 Zero-Install 原生 small probe / Resource Timing 侧信道审计；不会使用插件或修改浏览器配置。',
+    waitingHint: '当前链路会先执行 Zero-Install 原生 small probe（1.0 MiB 校准样本），命中后直接展示 Estimated；只有未获得可信 Timing 记录时才回退 Apple CDN Relay。',
+    preparingHint: '正在执行 Zero-Install 原生 small probe / Resource Timing 侧信道审计（1.0 MiB 校准样本）；不会使用插件或修改浏览器配置。',
     successHint: '已记录原生浏览器 small probe / Resource Timing 侧信道结果；若未获得可信下载估算，功能测速结果将来自 Relay 回退。',
     failHintSource: '原生直连',
   },
@@ -237,7 +237,7 @@ function getNativeTimingProbeConfig(mode = 'multi') {
     timeoutMs,
     latencyUrl: APPLE_DIRECT_RTT_URL,
     defaultProbeLabel: rawUrl === APPLE_DIRECT_NATIVE_PROBE_URL && knownBytes === DEFAULT_NATIVE_PROBE_KNOWN_BYTES
-      ? 'small-known-byte-probe'
+      ? 'small-calibrated-probe'
       : 'custom-native-probe',
     canAttemptFullDownload: knownBytes <= NATIVE_DIRECT_MAX_COMPLETE_BYTES,
   };
@@ -854,7 +854,9 @@ async function runNativeResourceTimingDownloadEstimate(mode = 'multi') {
     peakMbps: Math.max(...results.map((result) => result.mbps)),
     totalBytes: measuredBytes,
     measuredBytes,
-    byteSource: summarizeNativeByteSources(results),
+    byteSource: config.defaultProbeLabel === 'small-calibrated-probe'
+      ? `calibrated-known-bytes×${streamCount}`
+      : summarizeNativeByteSources(results),
     mbps,
   };
 }
@@ -1698,14 +1700,14 @@ function renderNativeDirectEstimateResult(mode, idleLatency, downloadEstimate, u
     status: '已完成 · Estimated',
     mainValue: '',
     mainHtml: formatDualSpeedHtml(downloadEstimate.mbps, uploadEstimate?.mbps),
-    summary: downloadEstimate.config?.defaultProbeLabel === 'small-known-byte-probe'
+    summary: downloadEstimate.config?.defaultProbeLabel === 'small-calibrated-probe'
       ? `${modeConfig.label}原生 small probe + upload 侧信道已命中`
       : `${modeConfig.label}原生侧信道估算完成`,
   });
   updateSpeedMetric(
     modeConfig.downloadMetricId,
     formatMbps(downloadEstimate.mbps),
-    `${downloadEstimate.streamCount} 线程 · ${formatBytesAdaptive(downloadEstimate.totalBytes)} · 聚合 ${formatMbps(downloadEstimate.mbps)} · ${downloadEstimate.byteSource}${downloadEstimate.config?.defaultProbeLabel === 'small-known-byte-probe' ? ' · default small probe' : ''}`
+    `${downloadEstimate.streamCount} 线程 · ${formatBytesAdaptive(downloadEstimate.totalBytes)} · 聚合 ${formatMbps(downloadEstimate.mbps)} · ${downloadEstimate.byteSource}${downloadEstimate.config?.defaultProbeLabel === 'small-calibrated-probe' ? ' · default small probe' : ''}`
   );
   updateSpeedMetric(
     modeConfig.uploadMetricId,
@@ -1724,7 +1726,7 @@ function renderNativeDirectEstimateResult(mode, idleLatency, downloadEstimate, u
     `POST no-cors ${uploadEstimate.streamCount} stream(s) · ${formatBytesAdaptive(uploadEstimate.totalBytes)}`
   );
   renderSpeedEndpoint(APPLE_DIRECT_HOST, '纯净 Chrome / 无插件 / Resource Timing 侧信道');
-  setSpeedHint(downloadEstimate.config?.defaultProbeLabel === 'small-known-byte-probe' ? '已命中默认原生 small probe；当前展示的是原生侧信道 Estimated，不再回退 Relay。' : '已获得原生浏览器 Resource Timing 下载估算，本次不再回退 Relay。', 'success');
+  setSpeedHint(downloadEstimate.config?.defaultProbeLabel === 'small-calibrated-probe' ? '已命中默认原生 small probe（1.0 MiB 校准样本）；当前展示的是原生侧信道 Estimated，不再回退 Relay。' : '已获得原生浏览器 Resource Timing 下载估算，本次不再回退 Relay。', 'success');
 
   addLog('原生直连', `原生下载估算 ${formatMbps(downloadEstimate.mbps)} · ${formatBytesAdaptive(downloadEstimate.totalBytes)} / ${downloadEstimate.wallElapsedMs.toFixed(1)} ms`, 'result', 'speed');
   addLog('原生直连', `原生上传估算 ${formatMbps(uploadEstimate.mbps)} · ${formatBytesAdaptive(uploadEstimate.totalBytes)} / ${uploadEstimate.wallElapsedMs.toFixed(1)} ms`, 'result', 'speed');
@@ -1740,7 +1742,7 @@ async function startNativeDirectSpeedTest(mode = 'multi') {
   setBrowserSpeedPreparing(mode, source);
   renderSpeedEndpoint(APPLE_DIRECT_HOST, '纯净 Chrome / 无插件 / Resource Timing 侧信道');
   addLog(sourceMeta.logLabel, `开始${modeConfig.label} Zero-Install 原生侧信道审计...`, 'info', 'speed');
-  addLog(sourceMeta.logLabel, `默认探针 ${getNativeTimingProbeConfig(mode).defaultProbeLabel === 'small-known-byte-probe' ? 'small / 1B known-byte' : getNativeTimingProbeConfig(mode).url}`, 'info', 'speed');
+  addLog(sourceMeta.logLabel, `默认探针 ${getNativeTimingProbeConfig(mode).defaultProbeLabel === 'small-calibrated-probe' ? 'small / 1.0 MiB calibrated-known-byte' : getNativeTimingProbeConfig(mode).url}`, 'info', 'speed');
 
   const idleLatency = await measureNativeDirectLatency(LATENCY_SAMPLE_COUNT);
   addLog(
